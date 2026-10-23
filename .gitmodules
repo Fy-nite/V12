@@ -1,0 +1,21 @@
+[submodule "Nova"]
+	path = Nova
+	url = https://github.com/fy-nite/Nova
+[submodule "V12.Pak"]
+	path = V12.Pak
+	url = https://github.com/fy-nite/V12.Pak
+[submodule "V12-Engine"]
+	path = V12-Engine
+	url = https://github.com/fy-nite/V12-Engine
+[submodule "V12-Sdk"]
+	path = V12-Sdk
+	url = https://github.com/fy-nite/V12-Sdk
+[submodule "V12.Basic"]
+	path = V12.Basic
+	url = https://github.com/fy-nite/V12.Basic
+[submodule "V12.Monogame"]
+	path = V12.Monogame
+	url = https://github.com/fy-nite/V12.Monogame
+[submodule "VNode"]
+	path = VNode
+	url = https://github.com/Fy-nite/VNode
