@@ -19,3 +19,6 @@
 [submodule "VNode"]
 	path = VNode
 	url = https://github.com/Fy-nite/VNode
+[submodule "Contract"]
+	path = Contract
+	url = https://github.com/fy-nite/Contract
