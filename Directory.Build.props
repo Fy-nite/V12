@@ -1,0 +1,48 @@
+<Project>
+  <!--
+    V12-Monorepo — root props
+    Single source of truth for where each sibling checkout lives.
+
+    This file is:
+      1. the automatic Directory.Build.props for projects directly under the
+         repo root, and
+      2. imported explicitly by each submodule's own Directory.Build.props.
+         MSBuild only auto-imports the *nearest* Directory.Build.props, so the
+         submodule props chain up to this file; that is what makes these sibling
+         paths win over their standalone libs/... defaults.
+
+    Keep this file import-safe: it must never import another
+    Directory.Build.props or it will recurse.
+
+    Override any path with -p:V12EngineProject=... etc.
+  -->
+  <PropertyGroup>
+    <!-- Single source of truth for Finite.* versions -->
+    <V12Version Condition="'$(V12Version)' == ''">1.0.0</V12Version>
+
+    <!-- Purr home (SDK consumes this via -p:PurrHome) -->
+    <PurrHome Condition="'$(PurrHome)' == '' and '$(PURR_HOME)' != ''">$(PURR_HOME)</PurrHome>
+    <PurrHome Condition="'$(PurrHome)' == '' and '$(HOME)' != ''">$(HOME)/.purr</PurrHome>
+    <PurrHome Condition="'$(PurrHome)' == ''">$(USERPROFILE)/.purr</PurrHome>
+  </PropertyGroup>
+
+  <PropertyGroup>
+    <V12MonorepoRoot>$(MSBuildThisFileDirectory)</V12MonorepoRoot>
+
+    <!-- Sibling project locations. Unconditional: inside the monorepo every
+         project references the same physical path, which also prevents two
+         identities (e.g. V12/1.0.0) for the same project. -->
+    <V12EngineProject>$(V12MonorepoRoot)V12-Engine/V12.csproj</V12EngineProject>
+    <V12BasicProject>$(V12MonorepoRoot)V12.Basic/V12.Basic.csproj</V12BasicProject>
+    <V12BasicRoot>$(V12MonorepoRoot)V12.Basic</V12BasicRoot>
+    <V12PakProject>$(V12MonorepoRoot)V12.Pak/V12.Pak.csproj</V12PakProject>
+    <V12BindingsProject>$(V12MonorepoRoot)V12.Basic/libs/V12.Bindings/V12.Bindings.csproj</V12BindingsProject>
+    <ContractRuntimeProject>$(V12MonorepoRoot)Contract/Contract.Runtime/Contract.Runtime.csproj</ContractRuntimeProject>
+  </PropertyGroup>
+
+  <!--
+    Don't force <Version> globally — V12.Sdk is 0.1.0, Finite.* are $(V12Version).
+    Pack script passes -p:Version=$(V12Version) explicitly so each package gets the right version
+    without polluting the tool version.
+  -->
+</Project>

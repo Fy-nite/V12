@@ -1,0 +1,17 @@
+<Project>
+  <!--
+    Monorepo late-stage fixups.
+
+    Real path redirection happens in Directory.Build.props, before each csproj
+    evaluates its ProjectReference items. This file only mirrors the values so
+    targets that read them after evaluation see the same sibling paths.
+  -->
+  <PropertyGroup Condition="'$(V12MonorepoRoot)' != ''">
+    <V12EngineProject>$(V12MonorepoRoot)V12-Engine/V12.csproj</V12EngineProject>
+    <V12BasicProject>$(V12MonorepoRoot)V12.Basic/V12.Basic.csproj</V12BasicProject>
+    <V12BasicRoot>$(V12MonorepoRoot)V12.Basic</V12BasicRoot>
+    <V12PakProject>$(V12MonorepoRoot)V12.Pak/V12.Pak.csproj</V12PakProject>
+    <V12BindingsProject>$(V12MonorepoRoot)V12.Basic/libs/V12.Bindings/V12.Bindings.csproj</V12BindingsProject>
+    <ContractRuntimeProject>$(V12MonorepoRoot)Contract/Contract.Runtime/Contract.Runtime.csproj</ContractRuntimeProject>
+  </PropertyGroup>
+</Project>
