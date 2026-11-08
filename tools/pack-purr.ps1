@@ -2,21 +2,36 @@ param(
     [string]$Version = "",
     [string]$Output = "",
     [switch]$NoBuild,
-    [switch]$Verbose
+    [switch]$Verbose,
+    [switch]$Dev
 )
 
 $ErrorActionPreference = "Stop"
 $root = Resolve-Path "$PSScriptRoot\.."
 Set-Location $root
 
-# Resolve version — prefer -Version, else Directory.Build.props V12Version, else 1.0.0
+# Resolve the version: -Version wins, else the root V12Version property, else 1.0.0
 if (-not $Version) {
     $props = Get-Content "$root/Directory.Build.props" -Raw
     if ($props -match '<V12Version>([^<]+)</V12Version>') { $Version = $Matches[1].Trim() }
     else { $Version = "1.0.0" }
 }
 
-# Resolve Purr output — $PURR_HOME/packages wins, else ~/.purr/packages, else D:\V12Packages for compat
+# -Dev stamps a unique prerelease version so NuGet never reuses a cached
+# extraction of an older build with the same version.
+if ($Dev) {
+    $base = $Version
+    $dash = $base.IndexOf('-')
+    if ($dash -ge 0) { $base = $base.Substring(0, $dash) }
+    $stamp = [DateTime]::UtcNow.ToString("yyyyMMdd-HHmmss")
+    $sha = ""
+    try { $sha = (git -C $root rev-parse --short HEAD 2>$null).Trim() } catch { }
+    if (-not $sha) { $sha = "local" }
+    $Version = "$base-dev.$stamp.$sha"
+    Write-Host "Dev version: $Version" -ForegroundColor Yellow
+}
+
+# Resolve the package output: -Output wins, else $PURR_HOME/packages, else ~/.purr/packages
 $purrHome = $env:PURR_HOME
 if (-not $purrHome) {
     if ($env:HOME) { $purrHome = Join-Path $env:HOME ".purr" }
@@ -36,9 +51,10 @@ if (Test-Path $legacyPackages) { Write-Host "  legacy: $legacyPackages" -Foregro
 $projects = @(
     @{ Path = "V12-Engine/V12.csproj"; PackageId = "Finite.V12" },
     @{ Path = "V12.Pak/V12.Pak.csproj"; PackageId = "Finite.V12.Pak" }
-    # V12.Basic has no PackageId today — pack as Finite.V12.Basic if you add one, or keep as ProjectReference:
-    # @{ Path = "V12.Basic/V12.Basic.csproj"; PackageId = "Finite.V12.Basic" },
-    # V12.Monogame variants are not packed as NuGet by default (libraries, not engine core)
+    @{ Path = "V12.Basic/V12.Basic.csproj"; PackageId = "Finite.V12.Basic" }
+    @{ Path = "Nova/Nova.Shared/Nova.Shared.csproj"; PackageId = "Finite.V12.Renderers.Nova.Shared" }
+    @{ Path = "V12-Sdk/V12.Sdk.csproj"; PackageId = "Finite.V12.Sdk" }
+    # Library-only projects (for example renderer hosts) are not packed as NuGet.
 )
 
 # Also pack Locus if present (Finite.V12.Locus)
@@ -57,13 +73,16 @@ foreach ($p in $projects) {
         continue
     }
     Write-Host "`npacking $($p.PackageId) ($($p.Path))..." -ForegroundColor Green
-    # dotnet pack with explicit Version so root props V12Version is respected even where csproj hardcodes 1.0.0
-    $cmd = "dotnet pack `"$proj`" -c Release -o `"$purrPackages`" -p:Version=$Version --nologo -v $verbosity $buildArgs"
+    # Pass an explicit version so the root version wins over a csproj default.
+    $cmd = "dotnet pack `"$proj`" -c Release -o `"$purrPackages`" -p:Version=$Version -p:GeneratePackageOnBuild=false -p:DebugSymbols=true -p:DebugType=portable --nologo -v $verbosity $buildArgs"
+    $cmdbuild = "dotnet build `"$proj`" -c Release -p:Version=$Version -p:DefineConstants=`"TRACY`" -p:GeneratePackageOnBuild=false --nologo -v $verbosity $buildArgs "
+    Write-Host "  $cmdbuild" -ForegroundColor DarkGray
     Write-Host "  $cmd" -ForegroundColor DarkGray
+    Invoke-Expression $cmdbuild
     Invoke-Expression $cmd
     if ($LASTEXITCODE -ne 0) { throw "pack failed for $($p.Path)" }
 
-    # mirror to legacy D:\V12Packages so existing Scramble-Studio global source still works during transition
+    # Mirror to the legacy feed, when present, for consumers still reading that location.
     if ($purrPackages -ne $legacyPackages -and (Test-Path $legacyPackages)) {
         $nupkg = Get-ChildItem $purrPackages -Filter "$($p.PackageId).$Version.nupkg" | Sort-Object LastWriteTime -Descending | Select-Object -First 1
         if ($nupkg) { Copy-Item $nupkg.FullName $legacyPackages -Force; Write-Host "  mirrored to $legacyPackages\$($nupkg.Name)" -ForegroundColor DarkGray }
@@ -71,7 +90,7 @@ foreach ($p in $projects) {
     $packed += $p.PackageId
 }
 
-# Optionally pack V12.Sdk tool (version 0.1.0 from its csproj, not V12Version)
+# Optionally pack the SDK tool using its own version, not the engine version.
 $sdkProj = Join-Path $root "V12-Sdk/V12.Sdk.csproj"
 if (Test-Path $sdkProj) {
     Write-Host "`npacking V12.Sdk (tool)..." -ForegroundColor Green
@@ -81,10 +100,26 @@ if (Test-Path $sdkProj) {
     if ($LASTEXITCODE -ne 0) { Write-Host "  V12.Sdk pack failed (non-fatal)" -ForegroundColor Yellow } else { Write-Host "  V12.Sdk $sdkVer -> V12-Sdk/nupkg" -ForegroundColor DarkGray }
 }
 
+# Drop matching versions from the NuGet global cache so the next restore
+# extracts the freshly built package even when the version is unchanged.
+$nugetCache = Join-Path $env:USERPROFILE ".nuget\packages"
+$suffix = ".$Version.nupkg"
+if (Test-Path $nugetCache) {
+    foreach ($nupkg in Get-ChildItem $purrPackages -Filter "*.nupkg" -ErrorAction SilentlyContinue) {
+        if (-not $nupkg.Name.EndsWith($suffix, [StringComparison]::OrdinalIgnoreCase)) { continue }
+        $id = $nupkg.Name.Substring(0, $nupkg.Name.Length - $suffix.Length).ToLowerInvariant()
+        $cacheDir = Join-Path $nugetCache "$id\$Version"
+        if (Test-Path $cacheDir) {
+            Remove-Item -Recurse -Force $cacheDir -ErrorAction SilentlyContinue
+            Write-Host "  cleared nuget cache: $cacheDir" -ForegroundColor DarkGray
+        }
+    }
+}
+
 Write-Host "`nDone. Packed: $($packed -join ', ') v$Version" -ForegroundColor Cyan
 Write-Host "Feed: $purrPackages" -ForegroundColor White
 Get-ChildItem $purrPackages -Filter "*.nupkg" | Sort-Object LastWriteTime -Descending | Select-Object -First 10 | Format-Table Name, Length, LastWriteTime -AutoSize
 
 Write-Host "`nNext:" -ForegroundColor Cyan
-Write-Host "  vcsdk build D:\git\Scramble-Studio    # will pick -p:RestoreAdditionalProjectSources=`"$purrPackages`"" 
-Write-Host "  dotnet build D:\git\Scramble-Studio   # after 'vcsdk build' creates nuget.config with purr feed, or add it manually"
+Write-Host "  vcsdk build <your project>  # will pick -p:RestoreAdditionalProjectSources=`"$purrPackages`"" 
+Write-Host "  dotnet build <your project>   # after 'vcsdk build' creates nuget.config with purr feed, or add it manually"

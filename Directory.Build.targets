@@ -11,6 +11,8 @@
     <V12BasicProject>$(V12MonorepoRoot)V12.Basic/V12.Basic.csproj</V12BasicProject>
     <V12BasicRoot>$(V12MonorepoRoot)V12.Basic</V12BasicRoot>
     <V12PakProject>$(V12MonorepoRoot)V12.Pak/V12.Pak.csproj</V12PakProject>
+    <V12PaperProject>$(V12MonorepoRoot)V12.Paper/V12.Paper.csproj</V12PaperProject>
+    <V12EditorProject>$(V12MonorepoRoot)V12.Editor/V12.Editor.csproj</V12EditorProject>
     <V12BindingsProject>$(V12MonorepoRoot)V12.Basic/libs/V12.Bindings/V12.Bindings.csproj</V12BindingsProject>
     <ContractRuntimeProject>$(V12MonorepoRoot)Contract/Contract.Runtime/Contract.Runtime.csproj</ContractRuntimeProject>
   </PropertyGroup>

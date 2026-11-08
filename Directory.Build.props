@@ -31,18 +31,21 @@
 
     <!-- Sibling project locations. Unconditional: inside the monorepo every
          project references the same physical path, which also prevents two
-         identities (e.g. V12/1.0.0) for the same project. -->
+         identities for the same project. -->
     <V12EngineProject>$(V12MonorepoRoot)V12-Engine/V12.csproj</V12EngineProject>
+    <V12RenderingProject>$(V12MonorepoRoot)V12.Rendering/V12.Rendering.csproj</V12RenderingProject>
     <V12BasicProject>$(V12MonorepoRoot)V12.Basic/V12.Basic.csproj</V12BasicProject>
     <V12BasicRoot>$(V12MonorepoRoot)V12.Basic</V12BasicRoot>
     <V12PakProject>$(V12MonorepoRoot)V12.Pak/V12.Pak.csproj</V12PakProject>
+    <V12PaperProject>$(V12MonorepoRoot)V12.Paper/V12.Paper.csproj</V12PaperProject>
+    <V12EditorProject>$(V12MonorepoRoot)V12.Editor/V12.Editor.csproj</V12EditorProject>
     <V12BindingsProject>$(V12MonorepoRoot)V12.Basic/libs/V12.Bindings/V12.Bindings.csproj</V12BindingsProject>
     <ContractRuntimeProject>$(V12MonorepoRoot)Contract/Contract.Runtime/Contract.Runtime.csproj</ContractRuntimeProject>
   </PropertyGroup>
 
   <!--
-    Don't force <Version> globally — V12.Sdk is 0.1.0, Finite.* are $(V12Version).
-    Pack script passes -p:Version=$(V12Version) explicitly so each package gets the right version
-    without polluting the tool version.
+    Don't force <Version> globally: the tool project and the engine packages
+    have different versions. The pack script passes -p:Version explicitly so
+    each package gets the right version without polluting the tool version.
   -->
 </Project>
