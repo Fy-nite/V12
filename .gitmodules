@@ -24,7 +24,7 @@
 	url = https://github.com/fy-nite/Contract
 [submodule "V12.Paper"]
 	path = V12.Paper
-	url = https://github.com/fy-nite/V12.Paper
+	url = https://github.com/Fy-nite/V12.Paper.git
 [submodule "V12.Editor"]
 	path = V12.Editor
-	url = https://github.com/fy-nite/V12.Editor
+	url = https://github.com/Fy-nite/V12.Editor.git
