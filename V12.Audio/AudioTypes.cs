@@ -106,6 +106,7 @@ public enum AudioEngineCapabilities
     RuntimeDeviceSelection = 1 << 10,
     Metering = 1 << 11,
     OfflineRender = 1 << 12,
+    ManagedEffects = 1 << 13,
 }
 
 /// <summary>Opaque channel identity. The generation catches a destroyed-then-reused slot.</summary>

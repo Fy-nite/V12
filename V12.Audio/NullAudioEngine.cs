@@ -1,3 +1,5 @@
+using System.Buffers;
+
 namespace V12.Audio;
 
 /// <summary>
@@ -92,7 +94,12 @@ public sealed class NullAudioEngine : IAudioEngine
         lock (_lock)
         {
             uint id = ++_nextId;
-            var channel = new NullChannel(new AudioChannelHandle(id, 1), desc, () => ++_nextId);
+            var channel = new NullChannel(
+                new AudioChannelHandle(id, 1),
+                desc,
+                () => ++_nextId,
+                _options.SampleRate,
+                _options.Channels);
             if (desc.Bus.IsValid && _buses.TryGetValue(desc.Bus.Id, out var bus))
                 channel.Bus = bus;
             _channels[id] = channel;
@@ -190,10 +197,16 @@ public sealed class NullAudioEngine : IAudioEngine
     private sealed class NullChannel : IAudioChannel
     {
         private readonly NullEffectChain _effects;
+        private readonly ManagedEffectChain? _managedEffects;
         private AudioPlaybackState _state;
         private double _position;
 
-        public NullChannel(AudioChannelHandle handle, in AudioChannelDesc desc, Func<uint> nextEffectId)
+        public NullChannel(
+            AudioChannelHandle handle,
+            in AudioChannelDesc desc,
+            Func<uint> nextEffectId,
+            int sampleRate,
+            int defaultChannels)
         {
             Handle = handle;
             Name = desc.Name ?? "Channel";
@@ -202,6 +215,12 @@ public sealed class NullAudioEngine : IAudioEngine
             Pan = desc.Pan;
             Loop = desc.Loop;
             _effects = new NullEffectChain(nextEffectId);
+
+            if (desc.Kind == AudioChannelKind.Stream)
+            {
+                int channels = desc.OutputChannels > 0 ? desc.OutputChannels : defaultChannels;
+                _managedEffects = new ManagedEffectChain(sampleRate, channels);
+            }
         }
 
         public AudioChannelHandle Handle { get; }
@@ -221,19 +240,58 @@ public sealed class NullAudioEngine : IAudioEngine
         public double Duration => Clip?.Duration ?? 0;
         public bool IsFinished => false;
         public IAudioEffectChain Effects => _effects;
+
+        public IManagedEffectChain ManagedEffects =>
+            _managedEffects ?? throw new AudioEngineException("Managed effects are only available on stream channels.");
+
         public (float Left, float Right) Peaks => (0f, 0f);
 
         public void Play() => _state = AudioPlaybackState.Playing;
         public void Pause() => _state = _state == AudioPlaybackState.Playing ? AudioPlaybackState.Paused : _state;
-        public void Stop() { _state = AudioPlaybackState.Stopped; _position = 0; }
-        public void Seek(double seconds) => _position = Math.Max(0, seconds);
-        public int Write(ReadOnlySpan<float> samples) => samples.Length;
+
+        public void Stop()
+        {
+            _state = AudioPlaybackState.Stopped;
+            _position = 0;
+            _managedEffects?.Reset();
+        }
+
+        public void Seek(double seconds)
+        {
+            _position = Math.Max(0, seconds);
+            _managedEffects?.Reset();
+        }
+
+        public int Write(ReadOnlySpan<float> samples)
+        {
+            if (_managedEffects is null || _managedEffects.Effects.Count == 0)
+                return samples.Length;
+
+            int channels = _managedEffects.Channels;
+            int frames = samples.Length / channels;
+            if (frames == 0)
+                return 0;
+
+            int sampleCount = frames * channels;
+            float[] buffer = ArrayPool<float>.Shared.Rent(sampleCount);
+            try
+            {
+                samples.Slice(0, sampleCount).CopyTo(buffer.AsSpan(0, sampleCount));
+                _managedEffects.Process(buffer.AsSpan(0, sampleCount), frames);
+                return sampleCount;
+            }
+            finally
+            {
+                ArrayPool<float>.Shared.Return(buffer);
+            }
+        }
         public void SetOutputChannelMap(ReadOnlySpan<int> mapping) { }
         public void ClearOutputChannelMap() { }
 
         public void Dispose()
         {
             _effects.Clear();
+            _managedEffects?.Dispose();
             _state = AudioPlaybackState.Stopped;
         }
     }

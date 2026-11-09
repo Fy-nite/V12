@@ -42,6 +42,8 @@ public sealed class OwnAudioEngine : IAudioEngine
     }
 
     internal AudioEngineOptions Options => _options;
+    internal int SampleRate => _options.SampleRate;
+    internal int OutputChannels => _options.Channels;
     internal MultiTrackSession Session => _session ?? throw new AudioEngineException("The audio engine has not started.");
     internal bool AnySolo => _anySolo;
 
@@ -62,7 +64,8 @@ public sealed class OwnAudioEngine : IAudioEngine
         AudioEngineCapabilities.BusGain |
         AudioEngineCapabilities.OutputRouting |
         AudioEngineCapabilities.DeviceEnumeration |
-        AudioEngineCapabilities.Metering;
+        AudioEngineCapabilities.Metering |
+        AudioEngineCapabilities.ManagedEffects;
 
     public IAudioTransport Transport => _transport;
     public IAudioMasterBus Master => _master;

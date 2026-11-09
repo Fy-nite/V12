@@ -1,3 +1,4 @@
+using System.Buffers;
 using Ownaudio.Audio.Tracks;
 
 namespace V12.Audio.OwnAudio;
@@ -7,6 +8,7 @@ internal sealed class OwnAudioChannel : IAudioChannel
     private readonly OwnAudioEngine _engine;
     private readonly AudioChannelDesc _desc;
     private OwnAudioEffectChain? _effects;
+    private ManagedEffectChain? _managedEffects;
 
     private AudioTrack _track;
     private object? _source;
@@ -44,6 +46,12 @@ internal sealed class OwnAudioChannel : IAudioChannel
         _pan = Math.Clamp(desc.Pan, -1f, 1f);
         _loop = desc.Loop;
         _effects = engine.CreateTrackEffectChain(track.Effects);
+        if (desc.Kind == AudioChannelKind.Stream)
+        {
+            int managedChannels = desc.OutputChannels > 0 ? desc.OutputChannels : engine.OutputChannels;
+            _managedEffects = new ManagedEffectChain(engine.SampleRate, managedChannels);
+        }
+
         _track = track;
         BindSource(source, clip);
 
@@ -177,6 +185,9 @@ internal sealed class OwnAudioChannel : IAudioChannel
     public IAudioEffectChain Effects =>
         _effects ?? throw new AudioEngineException("This channel has no effect chain.");
 
+    public IManagedEffectChain ManagedEffects =>
+        _managedEffects ?? throw new AudioEngineException("Managed effects are only available on stream channels.");
+
     public (float Left, float Right) Peaks => _track.Peaks;
 
     internal AudioChannelDesc Desc => _desc;
@@ -203,6 +214,7 @@ internal sealed class OwnAudioChannel : IAudioChannel
     {
         _track.Stop();
         _inputTrack?.Pause();
+        _managedEffects?.Reset();
         _state = AudioPlaybackState.Stopped;
     }
 
@@ -226,9 +238,38 @@ internal sealed class OwnAudioChannel : IAudioChannel
         }
 
         _track.Seek(time);
+        _managedEffects?.Reset();
     }
 
-    public int Write(ReadOnlySpan<float> samples) => _track.Write(samples);
+    public int Write(ReadOnlySpan<float> samples)
+    {
+        if (_managedEffects is null || _managedEffects.Effects.Count == 0)
+            return _track.Write(samples);
+
+        int channels = _managedEffects.Channels;
+        int requestedFrames = samples.Length / channels;
+        if (requestedFrames == 0)
+            return 0;
+
+        // Process only what the ring can take, so effect state stays aligned with the
+        // audio that actually reaches the track.
+        int frames = Math.Min(requestedFrames, _track.FreeSampleCount / channels);
+        if (frames <= 0)
+            return 0;
+
+        int sampleCount = frames * channels;
+        float[] buffer = ArrayPool<float>.Shared.Rent(sampleCount);
+        try
+        {
+            samples.Slice(0, sampleCount).CopyTo(buffer.AsSpan(0, sampleCount));
+            _managedEffects.Process(buffer.AsSpan(0, sampleCount), frames);
+            return _track.Write(buffer.AsSpan(0, sampleCount));
+        }
+        finally
+        {
+            ArrayPool<float>.Shared.Return(buffer);
+        }
+    }
 
     public void SetOutputChannelMap(ReadOnlySpan<int> mapping) => _track.SetOutputChannelMap(mapping);
     public void ClearOutputChannelMap() => _track.ClearOutputChannelMap();
@@ -289,6 +330,8 @@ internal sealed class OwnAudioChannel : IAudioChannel
         _state = AudioPlaybackState.Stopped;
         _effects?.Clear();
         _effects = null;
+        _managedEffects?.Dispose();
+        _managedEffects = null;
         _bus?.RemoveChannel(this);
         _bus = null;
         _engine.RemoveTrack(_track, _source);

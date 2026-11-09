@@ -76,6 +76,83 @@ public sealed class AudioContractTests
     }
 
     [Fact]
+    public async Task StreamChannelRunsManagedEffectsInOrder()
+    {
+        await using var engine = new NullAudioEngine(new AudioEngineOptions
+        {
+            SampleRate = 48_000,
+            Channels = 2,
+        });
+        await engine.StartAsync();
+
+        var channel = engine.CreateChannel(new AudioChannelDesc
+        {
+            Name = "Stream",
+            Kind = AudioChannelKind.Stream,
+        });
+
+        var order = new List<string>();
+        var first = new RecordingManagedEffect(0.5f, order, "first");
+        var second = new RecordingManagedEffect(0.5f, order, "second");
+        channel.ManagedEffects.Add(first);
+        channel.ManagedEffects.Add(second);
+
+        var samples = new float[8]; // 4 stereo frames
+        Array.Fill(samples, 1f);
+
+        int written = channel.Write(samples);
+
+        Assert.Equal(8, written);
+        Assert.Equal(48_000, first.SampleRate);
+        Assert.Equal(2, first.Channels);
+        Assert.Equal(4, first.FramesProcessed);
+        Assert.Equal(4, second.FramesProcessed);
+        Assert.Equal(1f, first.FirstInput);
+        Assert.Equal(0.5f, second.FirstInput);
+        Assert.Equal(new[] { "first", "second" }, order);
+    }
+
+    [Fact]
+    public async Task ManagedEffectsAreStreamOnly()
+    {
+        await using var engine = new NullAudioEngine();
+        await engine.StartAsync();
+
+        var channel = engine.CreateChannel(new AudioChannelDesc
+        {
+            Name = "File",
+            Kind = AudioChannelKind.File,
+        });
+
+        Assert.Throws<AudioEngineException>(() => { _ = channel.ManagedEffects; });
+    }
+
+    [Fact]
+    public async Task ManagedEffectChainRemoveDetachesAndClearDisposes()
+    {
+        await using var engine = new NullAudioEngine();
+        await engine.StartAsync();
+
+        var channel = engine.CreateChannel(new AudioChannelDesc
+        {
+            Name = "Stream",
+            Kind = AudioChannelKind.Stream,
+        });
+
+        var effect = new RecordingManagedEffect(1f);
+        channel.ManagedEffects.Add(effect);
+
+        Assert.True(channel.ManagedEffects.Remove(effect));
+        Assert.False(effect.Disposed);
+        Assert.Empty(channel.ManagedEffects.Effects);
+
+        channel.ManagedEffects.Add(effect);
+        channel.ManagedEffects.Clear();
+        Assert.True(effect.Disposed);
+        Assert.Empty(channel.ManagedEffects.Effects);
+    }
+
+    [Fact]
     public void NullEngineDoesNotAdvertiseUnsupportedFeatures()
     {
         using var engine = new NullAudioEngine();
@@ -157,5 +234,46 @@ public sealed class AudioContractTests
         Assert.Equal(0.25f, channel.Pan, 3);
 
         engine.Dispose();
+    }
+
+    private sealed class RecordingManagedEffect : IManagedEffect
+    {
+        private readonly float _gain;
+        private readonly List<string>? _order;
+        private readonly string _name;
+
+        public RecordingManagedEffect(float gain, List<string>? order = null, string name = "effect")
+        {
+            _gain = gain;
+            _order = order;
+            _name = name;
+        }
+
+        public int SampleRate { get; private set; }
+        public int Channels { get; private set; }
+        public int FramesProcessed { get; private set; }
+        public float FirstInput { get; private set; }
+        public bool Disposed { get; private set; }
+
+        public void Initialize(int sampleRate, int channels)
+        {
+            SampleRate = sampleRate;
+            Channels = channels;
+        }
+
+        public void Process(Span<float> interleaved, int frames)
+        {
+            _order?.Add(_name);
+            FramesProcessed += frames;
+            FirstInput = interleaved[0];
+
+            int samples = frames * Channels;
+            for (int i = 0; i < samples; i++)
+                interleaved[i] *= _gain;
+        }
+
+        public void Reset() => FramesProcessed = 0;
+
+        public void Dispose() => Disposed = true;
     }
 }

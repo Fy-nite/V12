@@ -45,5 +45,13 @@ public interface IAudioChannel : IDisposable
     void ClearOutputChannelMap();
 
     IAudioEffectChain Effects { get; }
+
+    /// <summary>
+    /// Managed, producer-side DSP run in place by <see cref="Write"/> before samples
+    /// reach the channel's native feed. Use this for hand-authored .NET effects on
+    /// stream channels; native inserts live in <see cref="Effects"/>.
+    /// </summary>
+    IManagedEffectChain ManagedEffects { get; }
+
     (float Left, float Right) Peaks { get; }
 }
