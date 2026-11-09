@@ -1,0 +1,14 @@
+{
+  "Version": 1,
+  "Engine": "v12",
+  "Worlds": [
+    { "Name": "ControllerDemo", "Entry": "Scenes/Main.worldml", "TemplatesDir": "" }
+  ],
+  "Assets": {
+  },
+  "Paks": [],
+  "Scripts": [],
+  "CSharpScripts": [],
+  "Dependencies": [],
+  "Xr": false
+}

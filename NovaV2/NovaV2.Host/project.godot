@@ -1,0 +1,41 @@
+; Engine configuration file.
+; It's best edited using the editor UI and not directly,
+; since the parameters that go here are not all obvious.
+;
+; Format:
+;   [section] ; section goes between []
+;   param=value ; assign values to parameters
+
+config_version=5
+
+[application]
+
+config/name="NovaV2"
+run/main_scene="res://Main.tscn"
+config/features=PackedStringArray("4.7", "C#")
+
+[audio]
+
+driver/driver="Dummy"
+
+[display]
+
+window/size/viewport_width=1280
+window/size/viewport_height=720
+
+[dotnet]
+
+project/assembly_name="NovaV2.Host"
+
+[editor]
+
+run/main_run_args="--game ..\\..\\V12-Samples\\ControllerDemo"
+
+[physics]
+
+common/physics_ticks_per_second=120
+
+[xr]
+
+openxr/extensions/hand_tracking=true
+shaders/enabled=true

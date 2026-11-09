@@ -1,0 +1,16 @@
+{
+  "schemaVersion": 1,
+  "id": "Raylib",
+  "name": "V12 Raylib + R3D",
+  "version": "1.0.0",
+  "kind": "raylib",
+  "distribution": "dotnet-export",
+  "singleFile": true,
+  "runtimeIdentifier": "win-x64",
+  "selfContained": true,
+  "executable": "Rockstar.exe",
+  "arguments": [],
+  "sourceProject": "Nova/V12TwoDog.Godot/V12TwoDog.Godot.csproj",
+  "publishedAtUtc": "2026-10-30T05:11:16.7678658Z",
+  "gamePakMode": "sibling"
+}

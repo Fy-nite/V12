@@ -1,0 +1,23 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+
+    <!--
+      Game paks are plugins: the generic V12 renderer loads this assembly from
+      the packaged .v12pak and runs it as an IV12Gamepack. EnableDynamicLoading
+      makes publish copy the project's dependencies next to the assembly.
+    -->
+    <EnableDynamicLoading>true</EnableDynamicLoading>
+    <CopyLocalLockFileAssemblies>true</CopyLocalLockFileAssemblies>
+  </PropertyGroup>
+
+  <ItemGroup>
+      <ProjectReference Include="$(V12EngineProject)" />
+      <ProjectReference Include="$(V12BasicProject)" />
+  </ItemGroup>
+
+</Project>

@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<World name="HelloDotnet">
+	<Element name="Sun">
+		<Component type="TransformComponent" x="0" y="8" z="4" rotationX="-34.377" rotationY="-51.566" rotationZ="0" />
+		<Component type="GenericLightComponent" ColorR="1" ColorG="0.97" ColorB="0.92" Energy="1.2" Type="Directional" Range="100" Angle="45" ShadowEnabled="True" SpotSoftness="0.5" />
+	</Element>
+	<Element name="Ground">
+		<Component type="TransformComponent" x="0" y="-0.1" z="0" />
+		<Component type="MeshComponent" Shape="Box" Width="12" Height="0.2" Depth="12" />
+		<Component type="MeshRenderer" MeshTargetName="Mesh" />
+		<Component type="MaterialComponent" R="0.24" G="0.26" B="0.3" A="1" Roughness="0.9" />
+	</Element>
+	<Element name="ViewportCamera">
+		<Component type="TransformComponent" x="0" y="2.6" z="7" rotationX="-20.05" />
+		<Component type="CameraComponent" Projection="Perspective" Fov="60" NearClip="0.05" FarClip="1000" OrthoSize="5" IsCurrent="True" />
+	</Element>
+</World>

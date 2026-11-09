@@ -1,0 +1,20 @@
+<Project Sdk="Godot.NET.Sdk/4.7.0">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <RootNamespace>NovaV2.Rendering</RootNamespace>
+    <AssemblyName>NovaV2.Shared</AssemblyName>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="$(V12RenderingProject)" />
+    <ProjectReference Include="$(V12EngineProject)" />
+    <ProjectReference Include="$(V12AudioOwnAudioProject)" />
+    <ProjectReference Include="$(V12BasicProject)" />
+    <ProjectReference Include="$(V12PaperProject)" />
+    <ProjectReference Include="$(V12PakProject)" />
+  </ItemGroup>
+
+</Project>

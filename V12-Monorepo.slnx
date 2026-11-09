@@ -1,0 +1,77 @@
+<Solution>
+  <Folder Name="/Contract/">
+    <Project Path="Contract/Contract.Compiler.Abstractions/Contract.Compiler.Abstractions.csproj" />
+    <Project Path="Contract/Contract.Compiler/Contract.Compiler.csproj" />
+    <Project Path="Contract/Contract.Runtime/Contract.Runtime.csproj" />
+  </Folder>
+  <Folder Name="/Contract/libs/">
+    <Project Path="Contract/libs/ObjektRT.Core/ObjektRT.Core.csproj" />
+    <Project Path="Contract/libs/ObjektRT.Stdlib/ObjektRT.Stdlib.csproj" />
+  </Folder>
+  <Folder Name="/Contract/libs/Objekt-RT/" />
+  <Folder Name="/Contract/libs/Objekt-RT/src/">
+    <Project Path="Contract/libs/Objekt-RT/src/ObjectRT.Abstractions/ObjectRT.Abstractions.csproj" />
+    <Project Path="Contract/libs/Objekt-RT/src/ObjectRT.Runtime/ObjectRT.Runtime.csproj" />
+    <Project Path="Contract/libs/Objekt-RT/src/ObjectRT.VM/ObjectRT.VM.csproj" />
+  </Folder>
+  <Folder Name="/libs/">
+    <Project Path="V12.Basic/libs/V12.Bindings/V12.Bindings.csproj" />
+  </Folder>
+  <Folder Name="/Nova/">
+    <Project Path="Nova/Nova.SDK/Nova.SDK.csproj" />
+    <Project Path="Nova/Nova.Shared/Nova.Shared.csproj">
+      <BuildType Project="Debug" />
+    </Project>
+    <Project Path="Nova/V12TwoDog.Godot/V12TwoDog.Godot.csproj">
+      <BuildType Project="Debug" />
+    </Project>
+  </Folder>
+  <Folder Name="/Nova/V12TwoDog.2dog/">
+    <Project Path="Nova/V12TwoDog.2dog/V12TwoDog.csproj" />
+  </Folder>
+  <Folder Name="/NovaV2/">
+    <Project Path="NovaV2/NovaV2.Shared/NovaV2.Shared.csproj" />
+    <Project Path="NovaV2/NovaV2.Host/NovaV2.Host.csproj" />
+  </Folder>
+  <Folder Name="/Rockstar/">
+    <Project Path="Rockstar/Rockstar.csproj" Id="4a2eeea7-af53-476f-8604-198acdd18c67" />
+  </Folder>
+  <Folder Name="/V12-Basic/">
+    <Project Path="V12.Basic/V12.Basic.csproj" />
+    <Project Path="V12.Pak/V12.Pak.csproj" />
+  </Folder>
+  <Folder Name="/Tests/">
+    <Project Path="V12.Architecture.Tests/V12.Architecture.Tests.csproj" />
+  </Folder>
+  <Folder Name="/V12-Paper/">
+    <Project Path="V12.Paper/V12.Paper.csproj" />
+  </Folder>
+  <Folder Name="/V12-Editor/">
+    <Project Path="V12.Editor/V12.Editor.csproj" />
+  </Folder>
+  <Folder Name="/V12-Engine/">
+    <Project Path="V12-Engine/V12.csproj" />
+  </Folder>
+  <Folder Name="/V12-Rendering/">
+    <Project Path="V12.Rendering/V12.Rendering.csproj" />
+  </Folder>
+  <Folder Name="/V12-Audio/">
+    <Project Path="V12.Audio/V12.Audio.csproj" />
+    <Project Path="V12.Audio.OwnAudio/V12.Audio.OwnAudio.csproj" />
+  </Folder>
+  <Folder Name="/V12-Samples/">
+    <Project Path="V12-Samples/HelloDotnet/HelloDotnet.csproj" />
+  </Folder>
+  <Folder Name="/V12-Sdk/">
+    <Project Path="V12-Sdk/V12.Sdk.csproj" />
+  </Folder>
+  <Folder Name="/V12.Monogame/">
+    <Project Path="V12.Monogame/Pulsar.Content/Pulsar.Content.csproj" />
+    <Project Path="V12.Monogame/Pulsar.Core/Pulsar.Core.csproj" />
+    <Project Path="V12.Monogame/Pulsar.GL/Pulsar.GL.csproj" />
+  </Folder>
+  <Folder Name="/VNode/" />
+  <Folder Name="/VNode/src/">
+    <Project Path="VNode/src/VNode.csproj" />
+  </Folder>
+</Solution>

@@ -34,6 +34,8 @@
          identities for the same project. -->
     <V12EngineProject>$(V12MonorepoRoot)V12-Engine/V12.csproj</V12EngineProject>
     <V12RenderingProject>$(V12MonorepoRoot)V12.Rendering/V12.Rendering.csproj</V12RenderingProject>
+    <V12AudioProject>$(V12MonorepoRoot)V12.Audio/V12.Audio.csproj</V12AudioProject>
+    <V12AudioOwnAudioProject>$(V12MonorepoRoot)V12.Audio.OwnAudio/V12.Audio.OwnAudio.csproj</V12AudioOwnAudioProject>
     <V12BasicProject>$(V12MonorepoRoot)V12.Basic/V12.Basic.csproj</V12BasicProject>
     <V12BasicRoot>$(V12MonorepoRoot)V12.Basic</V12BasicRoot>
     <V12PakProject>$(V12MonorepoRoot)V12.Pak/V12.Pak.csproj</V12PakProject>

@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="utf-8"?>
+<World name="ControllerDemo">
+	<Element name="Sun">
+		<Component type="TransformComponent" X="0" Y="8" Z="4" RotationX="-42" RotationY="-32" RotationZ="0" />
+		<Component type="GenericLightComponent" ColorR="1" ColorG="0.96" ColorB="0.9" Energy="1.15" Type="Directional" Range="100" Angle="45" SpotSoftness="0.5" ShadowEnabled="True" />
+		<Component type="EnvironmentComponent" Mode="SolidColor" SkyR="0.11" SkyG="0.13" SkyB="0.17" AmbientR="0.26" AmbientG="0.28" AmbientB="0.34" AmbientEnergy="1" ShadowsEnabled="True" ShadowDistance="60" ShadowBias="2" ShadowNormalBias="1" ShadowOpacity="1" />
+	</Element>
+
+	<Element name="Camera">
+		<Component type="TransformComponent" X="0" Y="4.6" Z="10.4" RotationX="-23" RotationY="0" RotationZ="0" />
+		<Component type="CameraComponent" Projection="Perspective" Fov="58" NearClip="0.05" FarClip="500" OrthoSize="5" IsCurrent="True" />
+	</Element>
+
+	<Element name="Ground">
+		<Component type="TransformComponent" X="0" Y="-0.1" Z="-1" />
+		<Component type="MeshComponent" Shape="Box" Width="26" Height="0.2" Depth="20" />
+		<Component type="MeshRenderer" MeshTargetName="Mesh" />
+		<Component type="MaterialComponent" R="0.17" G="0.18" B="0.21" A="1" Metallic="0" Roughness="0.95" />
+	</Element>
+
+	<Element name="ControllerDemo">
+		<Component type="TransformComponent" X="0" Y="0" Z="0" />
+		<Component type="ControllerDemoController" />
+	</Element>
+</World>

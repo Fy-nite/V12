@@ -1,0 +1,55 @@
+<?xml version="1.0" encoding="utf-8"?>
+<World name="HelloXR">
+	<Element name="Sun">
+		<Component type="TransformComponent" X="0" Y="8" Z="4" RotationX="-42" RotationY="-28" RotationZ="0" />
+		<Component type="GenericLightComponent" ColorR="1" ColorG="0.96" ColorB="0.9" Energy="1.2" Type="Directional" Range="100" Angle="45" SpotSoftness="0.5" ShadowEnabled="True" />
+		<Component type="EnvironmentComponent" Mode="SolidColor" SkyR="0.10" SkyG="0.12" SkyB="0.16" AmbientR="0.28" AmbientG="0.30" AmbientB="0.36" AmbientEnergy="1" ShadowsEnabled="True" ShadowDistance="40" ShadowBias="2" ShadowNormalBias="1" ShadowOpacity="1" />
+	</Element>
+
+	<!-- Used when no headset is present; ignored while XR owns the view. -->
+	<Element name="DesktopCamera">
+		<Component type="TransformComponent" X="0" Y="1.45" Z="1.4" RotationX="-8" RotationY="0" RotationZ="0" />
+		<Component type="CameraComponent" Projection="Perspective" Fov="65" NearClip="0.05" FarClip="200" OrthoSize="5" IsCurrent="True" />
+	</Element>
+
+	<Element name="Ground">
+		<Component type="TransformComponent" X="0" Y="-0.1" Z="0" />
+		<Component type="MeshComponent" Shape="Box" Width="12" Height="0.2" Depth="12" />
+		<Component type="MeshRenderer" MeshTargetName="Mesh" />
+		<Component type="MaterialComponent" R="0.19" G="0.20" B="0.24" A="1" Roughness="0.95" />
+	</Element>
+
+	<Element name="Box">
+		<Component type="TransformComponent" X="0" Y="1.2" Z="-1" />
+		<Component type="MeshComponent" Shape="Box" Width="0.32" Height="0.32" Depth="0.32" />
+		<Component type="MeshRenderer" MeshTargetName="Mesh" />
+		<Component type="MaterialComponent" R="0.92" G="0.55" B="0.18" A="1" Metallic="0.15" Roughness="0.45" />
+	</Element>
+
+	<Element name="Player">
+		<Component type="TransformComponent" X="0" Y="0" Z="0" />
+		<Component type="HelloXRController" />
+
+		<Element name="XRRig">
+			<Component type="XRRootComponent" />
+
+			<Element name="Head">
+				<Component type="XRHeadComponent" />
+			</Element>
+
+			<Element name="LeftHand">
+				<Component type="XRHandComponent" Side="Left" />
+				<Component type="MeshComponent" Shape="Box" Width="0.07" Height="0.07" Depth="0.13" />
+				<Component type="MeshRenderer" MeshTargetName="Mesh" />
+				<Component type="MaterialComponent" R="0.30" G="0.62" B="0.95" A="1" Metallic="0.2" Roughness="0.4" />
+			</Element>
+
+			<Element name="RightHand">
+				<Component type="XRHandComponent" Side="Right" />
+				<Component type="MeshComponent" Shape="Box" Width="0.07" Height="0.07" Depth="0.13" />
+				<Component type="MeshRenderer" MeshTargetName="Mesh" />
+				<Component type="MaterialComponent" R="0.30" G="0.62" B="0.95" A="1" Metallic="0.2" Roughness="0.4" />
+			</Element>
+		</Element>
+	</Element>
+</World>

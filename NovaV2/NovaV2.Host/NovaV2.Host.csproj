@@ -1,0 +1,18 @@
+<Project Sdk="Godot.NET.Sdk/4.7.0">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <RootNamespace>NovaV2.Host</RootNamespace>
+    <AssemblyName>NovaV2.Host</AssemblyName>
+    <EnableDynamicLoading>true</EnableDynamicLoading>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\NovaV2.Shared\NovaV2.Shared.csproj" />
+    <ProjectReference Include="$(V12EngineProject)" />
+    <ProjectReference Include="$(V12BasicProject)" />
+  </ItemGroup>
+
+</Project>
