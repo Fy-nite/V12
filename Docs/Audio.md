@@ -160,7 +160,9 @@ The low-level layer is scene-authored:
 </Element>
 
 <Element name="Music">
-  <Component type="TransformComponent" X="0" Y="0" Z="0" />
+  <LocalTransform>
+    <Position>0,0,0</Position>
+  </LocalTransform>
   <Component type="AudioSourceComponent"
              AudioClipPath="v12://Assets/music.ogg"
              Volume="0.6" Loop="True" Autoplay="True"
@@ -195,7 +197,9 @@ A typical scene:
 </Element>
 
 <Element name="Music">
-  <Component type="TransformComponent" X="0" Y="0" Z="0" />
+  <LocalTransform>
+    <Position>0,0,0</Position>
+  </LocalTransform>
   <Component type="AudioSourceComponent"
              AudioClipPath="v12://Assets/music.ogg"
              Volume="0.6" Loop="True" Autoplay="True" Bus="Music"

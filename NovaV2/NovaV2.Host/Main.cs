@@ -56,7 +56,7 @@ public partial class Main : Node3D
         // assemblies, and .NET loads them lazily. Touch the engine assemblies
         // that carry world components so a scene resolves even when the game
         // ships no gamepak (a gamepak normally pulls these in itself).
-        _ = typeof(V12.Basic.Components.CameraComponent);
+        _ = typeof(V12.Components.CameraComponent);
         _ = typeof(V12.Components.MeshComponent);
         _ = typeof(V12.Components.Renderables.MeshAsset);
 

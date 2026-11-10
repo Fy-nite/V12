@@ -46,10 +46,9 @@ The host owns tracking, not the game:
 - While XR is active the renderer stops creating snapshot cameras, so the
   headset camera owns the view.
 
-**Tracked elements must not carry a `TransformComponent`.** The pose is written
-as a quaternion into `LocalTransform`; a `TransformComponent` stores rotation as
-yaw/pitch/roll, which clamps at ±90° and gimbal-locks a hand pointed straight up
-or down. The service warns if it finds one.
+**Tracked elements carry no TransformComponent.** The pose is written directly
+as a quaternion into `LocalTransform`. That is the only element pose now, so a
+hand pointed straight up or down cannot gimbal-lock through an Euler mirror.
 
 The game only binds those events:
 

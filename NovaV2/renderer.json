@@ -1,0 +1,16 @@
+{
+  "schemaVersion": 1,
+  "id": "novav2",
+  "name": "V12 NovaV2 (Godot 4.7)",
+  "version": "1.0.0",
+  "kind": "godot",
+  "distribution": "godot-export",
+  "singleFile": false,
+  "runtimeIdentifier": "win-x64",
+  "selfContained": true,
+  "executable": "NovaV2.exe",
+  "arguments": [],
+  "sourceProject": "NovaV2/NovaV2.Host/NovaV2.Host.csproj",
+  "publishedAtUtc": "2026-11-10T17:21:00Z",
+  "gamePakMode": "sibling"
+}

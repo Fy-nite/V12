@@ -11,7 +11,7 @@ namespace V12.Architecture.Tests;
 
 /// <summary>
 /// Reproduces the HelloDotnet spinner: a compiled component updates the owning
-/// element's TransformComponent every world tick, and the render snapshot must
+/// element's LocalTransform every world tick, and the render snapshot must
 /// carry the new rotation.
 /// </summary>
 public sealed class SpinnerTests

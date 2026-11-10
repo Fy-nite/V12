@@ -1,5 +1,10 @@
 # V12 Renderer Contract
 
+> **Current contract:** `V12.Rendering.IRenderer` (`Submit(RenderFrameLease)`).
+> NovaV2 implements it and `vcsdk new renderer` targets it. The packet and
+> snapshot feeds below belong to the legacy
+> `V12.Core.Interfaces.Renderer.IRenderer` still used by MonoGame and Rockstar.
+
 How a renderer backend (MonoGame, Godot/nova, anything else) plugs into V12.
 One rule governs everything: **V12 determines placement; renderers mirror the
 tree and set locations.** No renderer computes placement from components.
@@ -40,8 +45,7 @@ Two feeds carry the same data in different shapes. Either is sufficient.
 ## Placement
 
 - Element-local matrix comes from one definition
-  (`ElementPlacement.ElementLocalMatrix`): the `TransformComponent` when
-  present, else `LocalTransform × ScaleComponent`.
+  (`ElementPlacement.ElementLocalMatrix`): `LocalTransform × ScaleComponent`.
 - World matrices compose inner-to-outer, row-vector order:
   `world = local × parentWorld` (`Element.WorldTransform` is the authority).
 - **Meshes carry no transforms.** A mesh's world is its element's world;

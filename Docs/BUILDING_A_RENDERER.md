@@ -1,5 +1,12 @@
 # Building a Renderer
 
+> **Current contract:** new renderers should target `V12.Rendering.IRenderer`
+> (`Submit(RenderFrameLease)`, resource handles, `IRendererLifecycle`). That is
+> what `vcsdk new renderer` scaffolds, and NovaV2 is the reference
+> implementation. This guide describes the legacy packet-based
+> `V12.Core.Interfaces.Renderer.IRenderer` that MonoGame and Rockstar still use;
+> it is kept for those backends until they are ported.
+
 A V12 renderer turns engine packets into backend objects. It does not own the world, does not decide placement, and does not read components from the render thread.
 
 This guide uses the Godot/Nova backend as the reference, but the same shape applies to MonoGame, OpenTK, a headless recorder, or a test renderer.
@@ -20,7 +27,7 @@ Forbidden:
 
 - `IWorldElement`, `World`, `GameRoot`, `ComponentBase`, `V12.Components.*`
 - `GetComponent<T>()` on a live element
-- Reading or writing `TransformComponent`, `MaterialComponent`, `ToggleComponent`, and friends
+- Reading or writing element `LocalTransform`, `MaterialComponent`, `ToggleComponent`, and friends
 - Holding live components in renderer state or packet DTOs
 
 Use `long` ids. `ElementId` and `ViewportId` are the only identity a renderer needs.

@@ -322,6 +322,7 @@ public sealed class ReferenceTests
     public void ElementUid_IsCarriedByWorldElementUpdate()
     {
         BsonConfig.Initialize();
+        var root = new GameRoot();
         var cables = new NetworkCables();
         var tracker = new DirtyTracker(cables, "test://tracker")
         {
@@ -330,6 +331,8 @@ public sealed class ReferenceTests
         };
 
         var world = new World("Refs");
+        root.Worlds.Add(world);
+        root.SelectWorld(world);
         var uid = Guid.NewGuid();
         var door = new Element("Door") { Uid = uid };
         world.AddElement(door);
@@ -345,5 +348,34 @@ public sealed class ReferenceTests
         var batch = AncientCompressor.Decompress<ElementUpdateBatchDTO>(message.Message);
         var update = Assert.Single(batch.Elements);
         Assert.Equal(uid, update.Uid);
+        Assert.Equal(world.Id, update.WorldId);
+    }
+
+    [Fact]
+    public void WorldId_RoundTripsThroughWorldSnapshot()
+    {
+        BsonConfig.Initialize();
+        var world = new World("Refs") { Id = Guid.NewGuid() };
+        world.AddElement(new Element("Door"));
+
+        var bytes = AncientCompressor.Compress(world);
+        var restored = AncientCompressor.Decompress<World>(bytes);
+
+        Assert.Equal(world.Id, restored.Id);
+    }
+
+    [Fact]
+    public void FindElementById_IsScopedToTheWorld()
+    {
+        var worldA = new World("A");
+        var worldB = new World("B");
+        var elementA = new Element("Door A") { Id = 42 };
+        var elementB = new Element("Door B") { Id = 42 };
+        worldA.AddElement(elementA);
+        worldB.AddElement(elementB);
+
+        Assert.Same(elementA, worldA.FindElementById(42));
+        Assert.Same(elementB, worldB.FindElementById(42));
+        Assert.Null(worldA.FindElementById(99));
     }
 }

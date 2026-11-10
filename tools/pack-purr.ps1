@@ -50,8 +50,13 @@ if (Test-Path $legacyPackages) { Write-Host "  legacy: $legacyPackages" -Foregro
 
 $projects = @(
     @{ Path = "V12-Engine/V12.csproj"; PackageId = "Finite.V12" },
-    @{ Path = "V12.Pak/V12.Pak.csproj"; PackageId = "Finite.V12.Pak" }
+    @{ Path = "V12.Rendering/V12.Rendering.csproj"; PackageId = "Finite.V12.Rendering" }
+    @{ Path = "V12.Audio/V12.Audio.csproj"; PackageId = "Finite.V12.Audio" }
+    @{ Path = "V12.Audio.OwnAudio/V12.Audio.OwnAudio.csproj"; PackageId = "Finite.V12.Audio.OwnAudio" }
     @{ Path = "V12.Basic/V12.Basic.csproj"; PackageId = "Finite.V12.Basic" }
+    @{ Path = "V12.Paper/V12.Paper.csproj"; PackageId = "Finite.V12.Paper" }
+    @{ Path = "V12.Editor/V12.Editor.csproj"; PackageId = "Finite.V12.Editor" }
+    @{ Path = "V12.Pak/V12.Pak.csproj"; PackageId = "Finite.V12.Pak" }
     @{ Path = "Nova/Nova.Shared/Nova.Shared.csproj"; PackageId = "Finite.V12.Renderers.Nova.Shared" }
     @{ Path = "V12-Sdk/V12.Sdk.csproj"; PackageId = "Finite.V12.Sdk" }
     # Library-only projects (for example renderer hosts) are not packed as NuGet.

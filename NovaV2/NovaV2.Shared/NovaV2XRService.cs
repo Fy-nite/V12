@@ -44,7 +44,6 @@ public sealed class NovaV2XRService : IDisposable
     private IWorldElement? _leftHand;
     private IWorldElement? _rightHand;
     private int _cacheTimer;
-    private bool _warnedEuler;
 
     private readonly Dictionary<string, bool> _prevButtons = new();
     private readonly Dictionary<string, float> _prevFloats = new();
@@ -262,25 +261,6 @@ public sealed class NovaV2XRService : IDisposable
             }
         }
 
-        // A tracked element must not carry a TransformComponent: writing a
-        // quaternion into LocalTransform mirrors it into that component as
-        // yaw/pitch/roll, which clamps at +-90 degrees and gimbal-locks a hand
-        // pointing straight up or down.
-        if (!_warnedEuler && HasTransformComponent(_head, _leftHand, _rightHand))
-        {
-            _warnedEuler = true;
-            GD.PushWarning(
-                "[NovaV2.XR] Tracked elements have a TransformComponent; their rotation is " +
-                "stored as Euler and will gimbal-lock. Remove it and let LocalTransform drive them.");
-        }
-    }
-
-    private static bool HasTransformComponent(params IWorldElement?[] elements)
-    {
-        foreach (var element in elements)
-            if (element?.GetComponent<TransformComponent>() is not null)
-                return true;
-        return false;
     }
 
     /// <summary>The rig follows the player element so room-scale movement plus
