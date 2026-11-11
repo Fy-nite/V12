@@ -5,7 +5,10 @@
 .DESCRIPTION
     Builds every renderer in the renderer table below with `dotnet publish`
     (PublishSingleFile=true), copies the result to
-    $PURR_HOME/renderers/<id>/, and writes a renderer.json config alongside it.
+    $PURR_HOME/renderers/<id>/<rid>/, and writes a renderer.json config alongside
+    it. Each RID gets its own distribution, so Windows, Linux and macOS hosts can
+    be installed side by side. A legacy flat install at <id>/renderer.json is
+    still readable by the SDK.
 
     Add a renderer by appending an entry to $renderers. Entries may override
     any generated config field with their Config hashtable.
@@ -14,7 +17,9 @@
     Only build these renderer ids (default: all).
 
 .PARAMETER RuntimeIdentifier
-    .NET RID to publish for (default: the current machine's RID).
+    .NET RID(s) to publish for. Accepts a comma-separated list or repeated
+    values (default: the current machine's RID).
+    Examples: win-x64,linux-x64,osx-arm64.
 
 .PARAMETER FrameworkDependent
     Publish framework-dependent instead of self-contained.
@@ -27,13 +32,16 @@
 
 .EXAMPLE
     pwsh tools/build-renderers.ps1 -Renderer monogame -RuntimeIdentifier win-x64
+
+.EXAMPLE
+    pwsh tools/build-renderers.ps1 -RuntimeIdentifier win-x64,linux-x64,osx-arm64
 #>
 [CmdletBinding()]
 param(
     [string[]]$Renderer = @(),
     [string]$Configuration = "Release",
     [Alias("rid")]
-    [string]$RuntimeIdentifier = "",
+    [string[]]$RuntimeIdentifier = @(),
     [string]$Version = "",
     [Alias("o")]
     [string]$Output = "",
@@ -45,12 +53,22 @@ $ErrorActionPreference = "Stop"
 $root = Resolve-Path "$PSScriptRoot\.."
 Set-Location $root
 
-if (-not $RuntimeIdentifier) {
+# Normalize RIDs: split comma-separated values, drop blanks, keep order.
+$RuntimeIdentifier = @($RuntimeIdentifier |
+    ForEach-Object { $_ -split ',' } |
+    ForEach-Object { $_.Trim() } |
+    Where-Object { $_ } |
+    Select-Object -Unique)
+
+if ($RuntimeIdentifier.Count -eq 0) {
     $ridLine = & dotnet --info | Select-String -Pattern '^\s*RID:\s*(\S+)' | Select-Object -First 1
     if ($ridLine -and $ridLine.Matches.Count -gt 0) {
-        $RuntimeIdentifier = $ridLine.Matches[0].Groups[1].Value
+        $RuntimeIdentifier = @($ridLine.Matches[0].Groups[1].Value)
     } else {
-        $RuntimeIdentifier = "win-x64"
+        $arch = [System.Runtime.InteropServices.RuntimeInformation]::ProcessArchitecture.ToString().ToLowerInvariant()
+        if ($IsMacOS) { $RuntimeIdentifier = @("osx-$arch") }
+        elseif ($IsWindows -or $env:OS -eq "Windows_NT") { $RuntimeIdentifier = @("win-$arch") }
+        else { $RuntimeIdentifier = @("linux-$arch") }
     }
 }
 
@@ -107,7 +125,7 @@ $selfContained = -not $FrameworkDependent
 $verbosity = if ($VerbosePreference -eq "SilentlyContinue") { "quiet" } else { "normal" }
 $stagingRoot = Join-Path ([System.IO.Path]::GetTempPath()) "v12-renderers"
 
-Write-Host "V12 renderers -> v$Version ($RuntimeIdentifier)" -ForegroundColor Cyan
+Write-Host "V12 renderers -> v$Version ($($RuntimeIdentifier -join ', '))" -ForegroundColor Cyan
 Write-Host "  purr: $renderersDir" -ForegroundColor DarkGray
 
 $published = @()
@@ -118,81 +136,83 @@ foreach ($r in $selected) {
         continue
     }
 
-    if ($r.Executable) {
-        $exeName = $r.Executable
-    } else {
-        $assemblyName = [System.IO.Path]::GetFileNameWithoutExtension($proj)
-        $exeName = if ($RuntimeIdentifier -like "win-*") { "$assemblyName.exe" } else { $assemblyName }
-    }
-
-    $stage = Join-Path $stagingRoot $r.Id
-    $dest = Join-Path $renderersDir $r.Id
-    if (Test-Path $stage) { Remove-Item -LiteralPath $stage -Recurse -Force }
-    New-Item -ItemType Directory -Path $stage -Force | Out-Null
-
-    Write-Host "`npublishing $($r.Name) ($($r.Project))..." -ForegroundColor Green
-
-    $publishArgs = @(
-        "publish", $proj,
-        "-c", $Configuration,
-        "-r", $RuntimeIdentifier,
-        "-o", $stage,
-        "--self-contained", $selfContained.ToString().ToLowerInvariant(),
-        "-p:Version=$Version",
-        "-p:PublishSingleFile=true",
-        "-p:IncludeNativeLibrariesForSelfExtract=true",
-        "-p:EnableCompressionInSingleFile=true",
-        "-p:PublishTrimmed=false",
-        "-p:DebugType=None",
-        "-p:DebugSymbols=false",
-        "-p:AllowedReferenceRelatedFileExtensions=none",
-        "-v", $verbosity,
-        "--nologo"
-    )
-
-    try {
-        & dotnet @publishArgs
-        if ($LASTEXITCODE -ne 0) { throw "dotnet publish failed for $($r.Project) (exit $LASTEXITCODE)" }
-
-        $builtExe = Join-Path $stage $exeName
-        if (-not (Test-Path $builtExe)) {
-            throw "expected executable not found: $builtExe"
+    foreach ($rid in $RuntimeIdentifier) {
+        if ($r.Executable) {
+            $exeName = $r.Executable
+        } else {
+            $assemblyName = [System.IO.Path]::GetFileNameWithoutExtension($proj)
+            $exeName = if ($rid -like "win-*") { "$assemblyName.exe" } else { $assemblyName }
         }
 
-        if (-not $KeepSymbols) {
-            Get-ChildItem $stage -Filter "*.pdb" -File | Remove-Item -Force
+        $stage = Join-Path $stagingRoot "$($r.Id)-$rid"
+        $dest = Join-Path (Join-Path $renderersDir $r.Id) $rid
+        if (Test-Path $stage) { Remove-Item -LiteralPath $stage -Recurse -Force }
+        New-Item -ItemType Directory -Path $stage -Force | Out-Null
+
+        Write-Host "`npublishing $($r.Name) ($($r.Project)) for $rid..." -ForegroundColor Green
+
+        $publishArgs = @(
+            "publish", $proj,
+            "-c", $Configuration,
+            "-r", $rid,
+            "-o", $stage,
+            "--self-contained", $selfContained.ToString().ToLowerInvariant(),
+            "-p:Version=$Version",
+            "-p:PublishSingleFile=true",
+            "-p:IncludeNativeLibrariesForSelfExtract=true",
+            "-p:EnableCompressionInSingleFile=true",
+            "-p:PublishTrimmed=false",
+            "-p:DebugType=None",
+            "-p:DebugSymbols=false",
+            "-p:AllowedReferenceRelatedFileExtensions=none",
+            "-v", $verbosity,
+            "--nologo"
+        )
+
+        try {
+            & dotnet @publishArgs
+            if ($LASTEXITCODE -ne 0) { throw "dotnet publish failed for $($r.Project) ($rid, exit $LASTEXITCODE)" }
+
+            $builtExe = Join-Path $stage $exeName
+            if (-not (Test-Path $builtExe)) {
+                throw "expected executable not found: $builtExe"
+            }
+
+            if (-not $KeepSymbols) {
+                Get-ChildItem $stage -Filter "*.pdb" -File | Remove-Item -Force
+            }
+
+            if (Test-Path $dest) { Remove-Item -LiteralPath $dest -Recurse -Force }
+            New-Item -ItemType Directory -Path $dest -Force | Out-Null
+            Copy-Item -Path (Join-Path $stage "*") -Destination $dest -Recurse -Force
+
+            $config = [ordered]@{
+                schemaVersion     = 1
+                id                = $r.Id
+                name              = $r.Name
+                version           = $Version
+                kind              = $r.Kind
+                distribution      = "dotnet-singlefile"
+                singleFile        = $true
+                runtimeIdentifier = $rid
+                selfContained     = $selfContained
+                executable        = $exeName
+                arguments         = @()
+                sourceProject     = $r.Project
+                publishedAtUtc    = (Get-Date).ToUniversalTime().ToString("o")
+            }
+            foreach ($key in $r.Config.Keys) { $config[$key] = $r.Config[$key] }
+
+            $configPath = Join-Path $dest "renderer.json"
+            $json = $config | ConvertTo-Json -Depth 10
+            [System.IO.File]::WriteAllText($configPath, $json, (New-Object System.Text.UTF8Encoding($false)))
+
+            Write-Host "  -> $dest" -ForegroundColor DarkGray
+            Write-Host "  -> $configPath" -ForegroundColor DarkGray
+            $published += "$($r.Id) [$rid]"
+        } finally {
+            if (Test-Path $stage) { Remove-Item -LiteralPath $stage -Recurse -Force -ErrorAction SilentlyContinue }
         }
-
-        if (Test-Path $dest) { Remove-Item -LiteralPath $dest -Recurse -Force }
-        New-Item -ItemType Directory -Path $dest -Force | Out-Null
-        Copy-Item -Path (Join-Path $stage "*") -Destination $dest -Recurse -Force
-
-        $config = [ordered]@{
-            schemaVersion     = 1
-            id                = $r.Id
-            name              = $r.Name
-            version           = $Version
-            kind              = $r.Kind
-            distribution      = "dotnet-singlefile"
-            singleFile        = $true
-            runtimeIdentifier = $RuntimeIdentifier
-            selfContained     = $selfContained
-            executable        = $exeName
-            arguments         = @()
-            sourceProject     = $r.Project
-            publishedAtUtc    = (Get-Date).ToUniversalTime().ToString("o")
-        }
-        foreach ($key in $r.Config.Keys) { $config[$key] = $r.Config[$key] }
-
-        $configPath = Join-Path $dest "renderer.json"
-        $json = $config | ConvertTo-Json -Depth 10
-        [System.IO.File]::WriteAllText($configPath, $json, (New-Object System.Text.UTF8Encoding($false)))
-
-        Write-Host "  -> $dest" -ForegroundColor DarkGray
-        Write-Host "  -> $configPath" -ForegroundColor DarkGray
-        $published += $r.Id
-    } finally {
-        if (Test-Path $stage) { Remove-Item -LiteralPath $stage -Recurse -Force -ErrorAction SilentlyContinue }
     }
 }
 
@@ -203,6 +223,11 @@ if ($published.Count -eq 0) {
 Write-Host "`nDone. Published: $($published -join ', ')" -ForegroundColor Cyan
 Write-Host "Renderer root: $renderersDir" -ForegroundColor White
 Get-ChildItem $renderersDir -Directory | ForEach-Object {
-    $configPath = Join-Path $_.FullName "renderer.json"
-    if (Test-Path $configPath) { Write-Host "  $($_.Name): $configPath" -ForegroundColor DarkGray }
+    $id = $_.Name
+    Get-ChildItem $_.FullName -Directory | ForEach-Object {
+        $configPath = Join-Path $_.FullName "renderer.json"
+        if (Test-Path $configPath) { Write-Host "  $id [$($_.Name)]: $configPath" -ForegroundColor DarkGray }
+    }
+    $legacyConfig = Join-Path $_.FullName "renderer.json"
+    if (Test-Path $legacyConfig) { Write-Host "  $id [legacy]: $legacyConfig" -ForegroundColor DarkGray }
 }

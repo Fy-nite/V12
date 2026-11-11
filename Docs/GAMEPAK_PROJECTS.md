@@ -104,7 +104,7 @@ install, not from a monorepo checkout:
 ~/.purr/
   packages/        Finite.V12.* and Contract.* nupkgs
   sdk/V12.props    V12Version + package feed, written by `vcsdk sync`
-  renderers/<id>/  installed renderer distributions + renderer.json
+  renderers/<id>/<rid>/  installed renderer distribution + renderer.json
   templates/       user template overrides
   bin/             tools
 ```
@@ -282,10 +282,21 @@ vcsdk serve D:\git\MyGame
 
 # fail when the pak's engine version differs from the renderer's
 vcsdk pack D:\git\MyGame --strict
+
+# build for several platforms in one pass
+vcsdk pack D:\git\MyGame --runtime win-x64,linux-x64,osx-arm64 -o dist
 ```
 
-The result is `bin/<name>.v12pak` plus a renderer executable renamed to
-`<name>.exe`. Launching the executable finds the pak by name.
+The default target RID is the host RID, and the matching renderer build is
+copied from `renderers/<id>/<rid>/`. The result is `bin/<name>.v12pak` plus the
+renderer executable renamed to `<name>` (`<name>.exe` on Windows). Multi-RID
+builds produce `dist/<name>-<rid>.v12pak` and the matching host for each RID.
+
+For `osx-*` targets, a Godot/Nova `.app` is deployed as `<name>.app` with its
+inner `Contents/MacOS` executable renamed, `Info.plist` `CFBundleExecutable`
+updated, an external `.pck` renamed when present, and the pak placed in
+`Contents/MacOS` beside the executable. The SDK re-signs the modified bundle
+ad-hoc on macOS; re-sign it with your own identity before distributing it.
 
 Set `PURR_HOME` if Purr is not at `~/.purr`. Run `vcsdk sync` once before the
 first build so `~/.purr/packages` and `~/.purr/sdk/V12.props` exist.
