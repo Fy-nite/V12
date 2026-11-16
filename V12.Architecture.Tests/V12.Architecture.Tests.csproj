@@ -22,6 +22,7 @@
   <ItemGroup>
     <ProjectReference Include="$(V12EngineProject)" />
     <ProjectReference Include="$(V12RenderingProject)" />
+    <ProjectReference Include="$(V12SkeletalProject)" />
     <ProjectReference Include="$(V12AudioProject)" />
     <ProjectReference Include="$(V12BasicProject)" />
     <ProjectReference Include="$(V12PakProject)" />

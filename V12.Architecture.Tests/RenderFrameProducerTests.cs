@@ -211,6 +211,133 @@ public sealed class RenderFrameProducerTests
         next!.Release();
     }
 
+    [Fact]
+    public void Producer_EmitsParticleItem_FromParticleSnapshot()
+    {
+        using var renderer = new NullRenderer();
+        using var producer = new RenderFrameProducer(renderer);
+
+        var snapshot = new FrameSnapshot();
+        snapshot.Renderables.Add(new RenderableSnapshot
+        {
+            ElementId = 7,
+            NodeType = SnapshotNodeType.Particle,
+            Transform = Matrix4x4.CreateTranslation(2f, 1f, -3f),
+            ParticleAmount = 24,
+            ParticleLifetime = 1.5f,
+            ParticleEmissionRadius = 0.5f,
+            ParticleSpeedMin = 2f,
+            ParticleSpeedMax = 4f,
+            ParticleDirX = 0f,
+            ParticleDirY = 1f,
+            ParticleDirZ = 0f,
+            ParticleSpread = 30f,
+            ParticleSize = 0.2f,
+            ParticleColor = Color.FromArgb(255, 255, 128, 0),
+            ParticleGravity = 9.81f,
+            ParticleEmitting = true,
+            ParticleOneShot = true,
+        });
+
+        Assert.True(producer.TryBuild(snapshot, NewEnv.Default, 0f, 0.016f, out var lease));
+        var frame = lease!.Frame;
+
+        Assert.Equal(0, frame.Items.Length);
+        Assert.Equal(1, frame.Particles.Length);
+
+        var particle = frame.Particles.Span[0];
+        Assert.Equal(7, particle.ElementId);
+        Assert.Equal(24, particle.Amount);
+        Assert.Equal(1.5f, particle.Lifetime);
+        Assert.Equal(0.5f, particle.EmissionRadius);
+        Assert.Equal(2f, particle.SpeedMin);
+        Assert.Equal(4f, particle.SpeedMax);
+        Assert.Equal(30f, particle.Spread);
+        Assert.Equal(9.81f, particle.Gravity);
+        Assert.True(particle.OneShot);
+        Assert.Equal(1f, particle.Color.X, 3);
+        Assert.Equal(128f / 255f, particle.Color.Y, 3);
+
+        renderer.Submit(lease);
+        Assert.Equal(1, renderer.LastFrame!.Frame.Particles.Length);
+    }
+
+    [Fact]
+    public void Producer_UsesCustomShader_WhenMaterialNamesOne()
+    {
+        using var renderer = new NullRenderer();
+        using var producer = new RenderFrameProducer(renderer, textureLoader: _ => NewTexture());
+
+        const string uri = "shader://tests/toon";
+        var reflection = new ShaderReflection(
+            new[]
+            {
+                new ShaderParameter("roughness", 0, MaterialValueKind.Float),
+                new ShaderParameter("albedoColor", 1, MaterialValueKind.Vector4),
+            },
+            new[] { new ShaderTextureSlot("albedoTex", 0) },
+            Array.Empty<VertexAttribute>());
+
+        ShaderAssetRegistry.Instance.Register(
+            uri,
+            new ShaderProgram(
+                BuiltIn: BuiltInShader.None,
+                Reflection: reflection,
+                AssetUri: uri,
+                Source: "shader_type spatial;\nvoid fragment() {}\n",
+                SourceLanguage: ShaderSourceLanguage.GodotSpatial),
+            version: 1);
+
+        var snapshot = new FrameSnapshot();
+        snapshot.Renderables.Add(new RenderableSnapshot
+        {
+            ElementId = 1,
+            NodeType = SnapshotNodeType.Camera,
+            Transform = Matrix4x4.Identity,
+            IsCurrentCamera = true,
+            Fov = 60f,
+            NearClip = 0.1f,
+            FarClip = 100f,
+        });
+        snapshot.Renderables.Add(new RenderableSnapshot
+        {
+            ElementId = 2,
+            NodeType = SnapshotNodeType.MeshCustom,
+            Transform = Matrix4x4.Identity,
+            MeshPoints = new double[] { 0, 0, 0, 1, 0, 0, 0, 1, 0 },
+            MeshIndices = new uint[] { 0, 1, 2 },
+            MatR = 0.25f,
+            MatG = 0.5f,
+            MatB = 0.75f,
+            MatA = 1f,
+            MatRoughness = 0.4f,
+            MatShaderUri = uri,
+            MatTexturePath = "textures/albedo.png",
+        });
+
+        Assert.True(producer.TryBuild(snapshot, NewEnv.Default, 0f, 0.016f, out var lease));
+        var frame = lease!.Frame;
+
+        Assert.Equal(1, frame.Items.Length);
+        Assert.Equal(1, producer.Resources.ShaderCount);
+        Assert.Equal(1, producer.Resources.TextureCount);
+
+        var item = frame.Items.Span[0];
+        Assert.True(item.OverridesIndex >= 0);
+
+        var overrides = frame.DrawOverrides.Span[item.OverridesIndex].Values.Span;
+        Assert.Equal(2, overrides.Length);
+
+        var byIndex = new Dictionary<int, MaterialValue>();
+        foreach (var entry in overrides)
+            byIndex[entry.ParameterIndex] = entry.Value;
+
+        Assert.Equal(0.4f, byIndex[0].FloatValue, 3);
+        Assert.Equal(new Vector4(0.25f, 0.5f, 0.75f, 1f), byIndex[1].Vector4Value);
+
+        renderer.Submit(lease);
+    }
+
     private static TextureData NewTexture() => new(
         TextureDimension.Texture2D,
         1,

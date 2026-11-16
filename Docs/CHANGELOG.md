@@ -7,6 +7,28 @@ All notable engine and tooling changes. The gameplay-facing rules live in
 
 ### Added
 
+- Skeletal animation module `V12.Skeletal` (`Finite.V12.Skeletal`): swappable
+  `ISkeletalAnimator`/`ISkeletalBackend` and `ISkeletalAssetImporter` interfaces,
+  a neutral `SkeletonAsset`, a Prowl.Motion backend and Clay importer, manager /
+  player / bone-attachment / mesh-part components, and time-based seeking
+  (`player.Time = t`). See `Docs/ANIMATION.md`.
+- `IMouseCapture` in `V12.Rendering`, surfaced as `GameRoot.MouseCapture`.
+  NovaV2 registers a Godot implementation that owns the window mouse mode, so
+  gameplay can lock the pointer for relative look and release it for menus
+  without referencing a windowing API.
+- `V12-Samples/SkinnedCharacter`: a runnable skinned-character sample with a
+  ground plane, clip selection, pause/restart and a captured-mouse orbit camera.
+- `MaterialComponent.ShaderUri` plus `RenderFrameProducer` custom-material
+  binding: a registered `shader://` program compiles per surface, with texture
+  slots and uniforms matched by reflection name.
+- `ShaderAssetLoader` for `*.v12shader` manifests; NovaV2 scans a project's
+  `shaders` folder and a pak's shader assets at startup.
+- Particle emitters: `ParticleItem` in the render contract,
+  `RendererFeature.Particles`, snapshot capture of `ParticleEmitterComponent`,
+  `RenderFrameProducer` emission, and a Godot `GPUParticles3D` backend with
+  tint, size and gravity.
+- Skybox loading in NovaV2: `EnvironmentComponent.Mode`/`SkyboxPath` now upload
+  an equirectangular panorama instead of always falling back to a solid colour.
 - Fixed-step simulation clock with pause, time scale, max-step catch-up,
   interpolation alpha, tick counters, and `OnFixedUpdate`.
 - Seeded `DeterministicRandom` source exposed as `GameRoot.Random`, with

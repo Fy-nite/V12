@@ -37,6 +37,7 @@ public sealed class NovaV2Runtime : IDisposable
     private readonly RenderFrameProducer _producer;
     private readonly GodotPresentationHost _presentation;
     private readonly NovaV2InputHandler _inputHandler;
+    private readonly GodotMouseCapture _mouseCapture;
     private readonly OwnAudioEngine _audio;
     private readonly PaperUi _ui;
     private readonly RenderTargetHandle _uiTarget;
@@ -53,6 +54,7 @@ public sealed class NovaV2Runtime : IDisposable
     private bool _forceRender = true;
     private bool _disposed;
     private RenderEnvironmentData? _lastEnvironment;
+    private readonly Dictionary<string, TextureHandle> _skyboxTextures = new(StringComparer.OrdinalIgnoreCase);
 
     public NovaV2Runtime(Node3D host, GameRoot root, NovaV2RuntimeOptions? options = null)
     {
@@ -79,6 +81,7 @@ public sealed class NovaV2Runtime : IDisposable
         _renderer = new NovaV2Renderer(host);
         _presentation = new GodotPresentationHost(host.GetWindow());
         _presentation.WindowEvent += OnWindowEvent;
+        EnvironmentProvider = CaptureEnvironment;
 
         _inputHandler = new NovaV2InputHandler();
         _audio = new OwnAudioEngine(new AudioEngineOptions
@@ -89,6 +92,13 @@ public sealed class NovaV2Runtime : IDisposable
             MaxChannels = 128,
         });
         root.Registry.Register("IAudioEngine", _audio);
+
+        // Pointer capture is a host service: gameplay calls Capture/Release
+        // through IMouseCapture and never reaches for Godot's Input API.
+        _mouseCapture = new GodotMouseCapture();
+        _mouseCapture.CaptureChanged += captured => _inputHandler.MouseCaptured = captured;
+        root.Registry.Register("IMouseCapture", _mouseCapture);
+        _inputHandler.MouseCaptured = _mouseCapture.IsCaptured;
 
         // NovaV2 owns the Paper layout and input bridge now. Remove the engine's
         // legacy default so no old IUIRenderer path can run.
@@ -130,13 +140,14 @@ public sealed class NovaV2Runtime : IDisposable
     public RenderFrameProducer Producer => _producer;
     public GodotPresentationHost Presentation => _presentation;
     public NovaV2InputHandler InputHandler => _inputHandler;
+    public GodotMouseCapture MouseCapture => _mouseCapture;
     public OwnAudioEngine Audio => _audio;
     public PaperUi Ui => _ui;
     public bool IsDisposed => _disposed;
     public bool LockMouseOnStart { get; set; }
 
     /// <summary>Environment source. Replace to supply host-owned skyboxes or effects.</summary>
-    public Func<GameRoot, RenderEnvironmentData> EnvironmentProvider { get; set; } = CaptureEnvironment;
+    public Func<GameRoot, RenderEnvironmentData> EnvironmentProvider { get; set; }
 
     /// <summary>
     /// Main-thread convenience: update the simulation and render if needed.
@@ -154,7 +165,7 @@ public sealed class NovaV2Runtime : IDisposable
         {
             bool escape = _inputHandler.ProcessFrame(inputService, xrAvailable, _root);
             if (escape)
-                SetMouseCaptured(!_inputHandler.MouseCaptured);
+                _mouseCapture.SetCaptured(!_mouseCapture.IsCaptured);
         }
 
         // XR poses and controller events must land before the world ticks, so
@@ -303,8 +314,7 @@ public sealed class NovaV2Runtime : IDisposable
 
     public void SetMouseCaptured(bool captured)
     {
-        Input.MouseMode = captured ? Input.MouseModeEnum.Captured : Input.MouseModeEnum.Visible;
-        _inputHandler.MouseCaptured = captured;
+        _mouseCapture.SetCaptured(captured);
     }
 
     public void LoseDevice()
@@ -326,10 +336,19 @@ public sealed class NovaV2Runtime : IDisposable
         _disposed = true;
 
         _presentation.WindowEvent -= OnWindowEvent;
+        _mouseCapture.Shutdown();
         _ui.Dispose();
         _xr?.Dispose();
         _producer.Dispose();
         _renderer.DestroyRenderTarget(_uiTarget);
+
+        foreach (var skybox in _skyboxTextures.Values)
+        {
+            if (skybox.IsValid)
+                _renderer.DestroyTexture(skybox);
+        }
+        _skyboxTextures.Clear();
+
         _renderer.Dispose();
         _audio.Dispose();
         _presentation.Dispose();
@@ -352,6 +371,15 @@ public sealed class NovaV2Runtime : IDisposable
     {
         SetupAssemblyLoadContext();
 
+        // Shader manifests must be registered before the first frame so a
+        // MaterialComponent.ShaderUri resolves during the very first capture.
+        if (!string.IsNullOrWhiteSpace(_options.ShaderDirectory))
+        {
+            int shaders = ShaderAssetLoader.LoadDirectory(_options.ShaderDirectory);
+            if (shaders > 0)
+                GD.Print($"[NovaV2] Registered {shaders} shader(s) from '{_options.ShaderDirectory}'.");
+        }
+
         bool startedAny = false;
 
         if (!string.IsNullOrWhiteSpace(_options.PakPath) && File.Exists(_options.PakPath))
@@ -364,6 +392,8 @@ public sealed class NovaV2Runtime : IDisposable
                     LoadContractScripts = true,
                     LoadCSharpScripts = true,
                 });
+
+                LoadPakShaders(_loadedPakArchive);
 
                 if (_loadedPakArchive.LoadedWorlds.Count > 0)
                     _root.SelectWorld(_loadedPakArchive.LoadedWorlds[0]);
@@ -452,6 +482,35 @@ public sealed class NovaV2Runtime : IDisposable
             _root.SelectWorld(_root.Worlds[0]);
     }
 
+    /// <summary>
+    /// Registers every <c>.v12shader</c> the pak's manifest lists. The pak
+    /// resolver materializes archive entries to disk, so the shader loader can
+    /// read them with the normal file path.
+    /// </summary>
+    private static void LoadPakShaders(V12PakLoadResult pak)
+    {
+        var files = new List<string>();
+        foreach (string key in pak.Manifest.Assets.Keys)
+        {
+            if (!key.EndsWith(ShaderAssetLoader.Extension, StringComparison.OrdinalIgnoreCase))
+                continue;
+
+            string resolved = pak.Resolver.Resolve("v12://" + key.TrimStart('/'));
+            if (File.Exists(resolved))
+                files.Add(resolved);
+        }
+
+        if (files.Count == 0)
+            return;
+
+        int loaded = ShaderAssetLoader.LoadFiles(files);
+        if (loaded > 0)
+        {
+            GD.Print($"[NovaV2] Registered {loaded} shader(s) from pak " +
+                     $"'{Path.GetFileName(pak.PakPath)}'.");
+        }
+    }
+
     private static void SetupAssemblyLoadContext()
     {
         var context = AssemblyLoadContext.GetLoadContext(typeof(NovaV2Runtime).Assembly);
@@ -473,7 +532,7 @@ public sealed class NovaV2Runtime : IDisposable
                 StringComparison.OrdinalIgnoreCase));
     }
 
-    private static RenderEnvironmentData CaptureEnvironment(GameRoot root)
+    private RenderEnvironmentData CaptureEnvironment(GameRoot root)
     {
         var element = root.SelectedWorld?.FindElementWithComponentRecursive<EnvironmentComponent>()
                       ?? root.PersistentWorld.FindElementWithComponentRecursive<EnvironmentComponent>();
@@ -481,6 +540,14 @@ public sealed class NovaV2Runtime : IDisposable
         if (component is null)
             return RenderEnvironmentData.Default;
 
+        TextureHandle? skybox = null;
+        if (component.Mode == BackgroundMode.Skybox &&
+            !string.IsNullOrWhiteSpace(component.SkyboxPath))
+        {
+            skybox = GetSkyboxTexture(component.SkyboxPath);
+        }
+
+        bool hasSkybox = skybox.HasValue && skybox.Value.IsValid;
         var defaults = RenderEnvironmentData.Default;
         return defaults with
         {
@@ -504,12 +571,29 @@ public sealed class NovaV2Runtime : IDisposable
                     component.SkyG,
                     component.SkyB),
                 Energy = 1f,
-                // Path resolution is a host/asset concern; fall back to the
-                // solid sky colour until the engine publishes a TextureHandle.
-                SkyboxEnabled = false,
-                Skybox = null,
+                SkyboxEnabled = hasSkybox,
+                Skybox = hasSkybox ? skybox : null,
             },
         };
+    }
+
+    /// <summary>
+    /// Resolves an environment skybox path to a GPU texture once. The handle is
+    /// cached by path, so switching worlds back and forth does not thrash it;
+    /// all cached handles are released with the runtime.
+    /// </summary>
+    private TextureHandle? GetSkyboxTexture(string path)
+    {
+        if (_skyboxTextures.TryGetValue(path, out var existing))
+            return existing;
+
+        var data = GodotTextureLoader.Load(path);
+        if (data is null)
+            return null;
+
+        var handle = _renderer.CreateTexture(data);
+        _skyboxTextures[path] = handle;
+        return handle;
     }
 
     private void ThrowIfDisposed()

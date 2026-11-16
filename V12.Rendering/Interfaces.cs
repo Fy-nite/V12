@@ -93,3 +93,35 @@ public interface IXrPresentation
 {
     XrPresentationFeatures Features { get; }
 }
+
+/// <summary>
+/// Host-owned mouse capture. Games use this to lock the pointer for relative
+/// look and release it for menus. The host decides what capture means on its
+/// platform (OS mouse mode, cursor visibility, focus), and gameplay never talks
+/// to a windowing API directly.
+///
+/// Resolve it from the service registry (<c>GameRoot.MouseCapture</c> in the
+/// engine, <c>Registry.Resolve&lt;IMouseCapture&gt;()</c> in a gamepak). It is
+/// optional: a headless or web host can leave it unregistered, so always
+/// null-check.
+/// </summary>
+public interface IMouseCapture
+{
+    /// <summary>True while the host has locked the pointer.</summary>
+    bool IsCaptured { get; }
+
+    /// <summary>False when the platform cannot capture (headless, test host).</summary>
+    bool IsSupported { get; }
+
+    /// <summary>Raised after the capture state changes, with the new value.</summary>
+    event Action<bool>? CaptureChanged;
+
+    /// <summary>Lock the pointer. No-op when already captured.</summary>
+    void Capture();
+
+    /// <summary>Release the pointer. No-op when already released.</summary>
+    void Release();
+
+    /// <summary>Set the state explicitly; equivalent to Capture/Release.</summary>
+    void SetCaptured(bool captured);
+}

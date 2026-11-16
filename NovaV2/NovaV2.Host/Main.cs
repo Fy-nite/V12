@@ -59,6 +59,10 @@ public partial class Main : Node3D
         _ = typeof(V12.Components.CameraComponent);
         _ = typeof(V12.Components.MeshComponent);
         _ = typeof(V12.Components.Renderables.MeshAsset);
+        // Skeletal components live in their own package; touch one so the
+        // WorldML parser can resolve SkeletalManagerComponent/SkeletalPlayerComponent.
+        // KeepAlive is deliberate: a bare `typeof` can be optimized away.
+        GC.KeepAlive(typeof(V12.Skeletal.Components.SkeletalManagerComponent));
 
         if (gameDir is not null)
         {
@@ -77,6 +81,9 @@ public partial class Main : Node3D
         {
             Name = "NovaV2Host",
             PakPath = pakPath ?? "",
+            // A project folder registers its own shaders before the world
+            // loads, so `shader://` URIs resolve on the first frame.
+            ShaderDirectory = gameDir is null ? "" : Path.Combine(gameDir, "shaders"),
             GamepakDirectory = gameDir is null ? "gamepaks" : "",
             // --game already initialised and started the gamepaks above.
             AutoStartFirstGamepak = gameDir is null,

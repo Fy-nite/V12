@@ -1,0 +1,22 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+
+    <PackageId>Finite.V12.Skeletal</PackageId>
+    <Version>1.0.0</Version>
+    <Authors>Charlie-san; Finite</Authors>
+    <Description>Skeletal animation for V12: swappable backends, manager/player components, bone attachment and time seeking</Description>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- Import and the default runtime backend. The abstraction does not expose
+         either type, so another backend can replace them. -->
+    <PackageReference Include="Prowl.Clay" Version="3.9.3" />
+    <PackageReference Include="Prowl.Motion" Version="3.9.3" />
+    <ProjectReference Include="$(V12EngineProject)" />
+  </ItemGroup>
+
+</Project>

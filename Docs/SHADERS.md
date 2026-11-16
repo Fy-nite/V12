@@ -16,7 +16,7 @@ Godot offers three separate mechanisms, and conflating them is what makes this c
 
 | Door | What it is | Consumer | Status |
 | --- | --- | --- | --- |
-| 0. `ShaderMaterial` | GDShader source on `Shader`, engine does the lighting | NovaV2, per-material lit shaders | needs Phase 0 |
+| 0. `ShaderMaterial` | GDShader source on `Shader`, engine does the lighting | NovaV2, per-material lit shaders | shipped for gameplay materials via `MaterialComponent.ShaderUri` |
 | 1. `CompositorEffect` | GLSL compute on the rendered frame (post-process) | NovaV2 screen-space effects | needs Phase 2 |
 | 2. `RenderingDevice` | raw GLSL/SPIR-V, you own buffers, pipelines, lighting | NovaV2 procedural (fur shells, wind, noise) | needs Phase 2 |
 
@@ -157,12 +157,14 @@ Rockstar is OpenGL through raylib, so it wants GLSL source. SPIR-V is for a futu
 
 | # | Deliverable | Consumer |
 | --- | --- | --- |
-| 0 | `MaterialComponent.ShaderUri` → snapshot → `RenderFrameProducer` → `ShaderAssetRegistry` → `MaterialDesc`. Ends with a hand-written lit toon `.gdshader` rendering under the scene's directional light. | NovaV2, now |
+| 0 | `MaterialComponent.ShaderUri` → snapshot → `RenderFrameProducer` → `ShaderAssetRegistry` → `MaterialDesc`. Wired end to end; the remaining acceptance step is the hand-written lit toon `.gdshader` screenshot. | NovaV2, shipped |
 | 1 | `shader://` resolution across all three stores, `godot` framing field, auto-derived `parameters`/`textures`, `Shaders` list in `V12PakManifest`, `vcsdk pack` step, watch mode, optional `EditorImportPlugin` for `.v12shader`. | NovaV2, now |
 | 2 | Door 1 and door 2: `RDShaderSource` + `shader_compile_spirv_from_source` with GLSL, `Texture2DRD` into a material uniform, per-stage error reporting, `CompositorEffect` for post-process. | NovaV2 effects |
 | 3 | `gdshader2glsl` producing `backends.glsl` (and `backends.spirv`), plus the `render_mode` to pipeline-state table. Optional Slang front-end via `slangc -target glsl`. | Rockstar, deferred |
 
-Phase 0 first: it is small, and it unblocks hand-written `.gdshader` while the rest is built.
+Phase 0's plumbing is in place: a project's `shaders/**/*.v12shader` files and a
+pak's shader assets are registered at startup, and a material naming the URI
+compiles it. Phase 1 (full three-store resolution and pak packing) is next.
 
 ## Godot's rendering constraints
 

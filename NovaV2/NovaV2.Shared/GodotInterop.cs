@@ -49,6 +49,8 @@ internal static class GodotInterop
         Vector2[]? uvs = null;
         float[]? tangents = null;
         Color[]? colors = null;
+        float[]? weights = null;
+        int[]? bones = null;
 
         foreach (var attribute in data.Layout.Span)
         {
@@ -72,6 +74,12 @@ internal static class GodotInterop
                 case VertexSemantic.Color:
                     colors = ReadColorArray(verticesBytes, vertexCount, stream.Stride, attribute);
                     break;
+                case VertexSemantic.SkinWeights:
+                    weights = ReadFloatArray4(verticesBytes, vertexCount, stream.Stride, attribute);
+                    break;
+                case VertexSemantic.SkinIndices:
+                    bones = ReadByteArray4(verticesBytes, vertexCount, stream.Stride, attribute);
+                    break;
             }
         }
 
@@ -90,6 +98,15 @@ internal static class GodotInterop
         // float array.
         if (tangents is not null && tangents.Length == vertexCount * 4)
             arrays[(int)Mesh.ArrayType.Tangent] = tangents;
+
+        // Godot skinning: four bone indices and four weights per vertex. The
+        // backend only uploads a skin when both streams are present and sized.
+        if (bones is not null && weights is not null &&
+            bones.Length == vertexCount * 4 && weights.Length == vertexCount * 4)
+        {
+            arrays[(int)Mesh.ArrayType.Bones] = bones;
+            arrays[(int)Mesh.ArrayType.Weights] = weights;
+        }
 
         if (data.Indices.Length > 0)
         {
@@ -197,6 +214,25 @@ internal static class GodotInterop
             result[o + 1] = MemoryMarshal.Read<float>(data.Slice(offset + 4, 4));
             result[o + 2] = MemoryMarshal.Read<float>(data.Slice(offset + 8, 4));
             result[o + 3] = MemoryMarshal.Read<float>(data.Slice(offset + 12, 4));
+        }
+        return result;
+    }
+
+    private static int[] ReadByteArray4(
+        ReadOnlySpan<byte> data,
+        int count,
+        int stride,
+        in VertexAttribute attribute)
+    {
+        var result = new int[count * 4];
+        for (int i = 0; i < count; i++)
+        {
+            int offset = i * stride + attribute.Offset;
+            int o = i * 4;
+            result[o + 0] = data[offset];
+            result[o + 1] = data[offset + 1];
+            result[o + 2] = data[offset + 2];
+            result[o + 3] = data[offset + 3];
         }
         return result;
     }

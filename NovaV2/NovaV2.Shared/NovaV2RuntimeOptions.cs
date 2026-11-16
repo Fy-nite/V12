@@ -11,6 +11,12 @@ public sealed class NovaV2RuntimeOptions
     /// <summary>Optional .v12pak archive loaded before directory gamepaks.</summary>
     public string? PakPath { get; set; }
 
+    /// <summary>
+    /// Directory scanned recursively for <c>.v12shader</c> manifests before the
+    /// world loads, so <c>MaterialComponent.ShaderUri</c> resolves on frame one.
+    /// </summary>
+    public string? ShaderDirectory { get; set; }
+
     /// <summary>Already-referenced assemblies to scan for gamepaks.</summary>
     public IReadOnlyList<Assembly>? GamepakAssemblies { get; set; }
 

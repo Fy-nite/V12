@@ -1,4 +1,5 @@
 using System.Buffers;
+using System.Numerics;
 
 namespace V12.Rendering;
 
@@ -85,6 +86,9 @@ public sealed class RenderFrameBuilder
     public List<DrawItem> Items { get; } = new();
     public List<DrawOverrides> DrawOverrides { get; } = new();
     public List<LightItem> Lights { get; } = new();
+    public List<ParticleItem> Particles { get; } = new();
+    public List<SkinItem> Skins { get; } = new();
+    public List<Matrix4x4> BoneTransforms { get; } = new();
     public EnvironmentData? Environment { get; set; } = EnvironmentData.Default;
     public float Time { get; set; }
     public float DeltaTime { get; set; }
@@ -99,6 +103,9 @@ public sealed class RenderFrameBuilder
         var items = RentCopy(Items);
         var overrides = RentCopy(DrawOverrides);
         var lights = RentCopy(Lights);
+        var particles = RentCopy(Particles);
+        var skins = RentCopy(Skins);
+        var bones = RentCopy(BoneTransforms);
 
         var frame = new RenderFrame
         {
@@ -106,12 +113,16 @@ public sealed class RenderFrameBuilder
             Items = items.Memory,
             DrawOverrides = overrides.Memory,
             Lights = lights.Memory,
+            Particles = particles.Memory,
+            Skins = skins.Memory,
+            BoneTransforms = bones.Memory,
             Environment = Environment ?? EnvironmentData.Default,
             Time = Time,
             DeltaTime = DeltaTime,
         };
 
-        return new RenderFrameLease(_pool, _sequence, _epoch, frame, views, items, overrides, lights);
+        return new RenderFrameLease(
+            _pool, _sequence, _epoch, frame, views, items, overrides, lights, particles, skins, bones);
     }
 
     private static RentedBuffer<T> RentCopy<T>(List<T> source)
@@ -133,6 +144,9 @@ public sealed class RenderFrameLease : IDisposable
     private readonly RentedBuffer<DrawItem> _items;
     private readonly RentedBuffer<DrawOverrides> _overrides;
     private readonly RentedBuffer<LightItem> _lights;
+    private readonly RentedBuffer<ParticleItem> _particles;
+    private readonly RentedBuffer<SkinItem> _skins;
+    private readonly RentedBuffer<Matrix4x4> _bones;
     private readonly RenderFrame _frame;
     private int _released;
 
@@ -144,13 +158,19 @@ public sealed class RenderFrameLease : IDisposable
         RentedBuffer<RenderView> views,
         RentedBuffer<DrawItem> items,
         RentedBuffer<DrawOverrides> overrides,
-        RentedBuffer<LightItem> lights)
+        RentedBuffer<LightItem> lights,
+        RentedBuffer<ParticleItem> particles,
+        RentedBuffer<SkinItem> skins,
+        RentedBuffer<Matrix4x4> bones)
     {
         _pool = pool;
         _views = views;
         _items = items;
         _overrides = overrides;
         _lights = lights;
+        _particles = particles;
+        _skins = skins;
+        _bones = bones;
         _frame = frame;
         Sequence = sequence;
         Epoch = epoch;
@@ -179,6 +199,9 @@ public sealed class RenderFrameLease : IDisposable
         _items.Return();
         _overrides.Return();
         _lights.Return();
+        _particles.Return();
+        _skins.Return();
+        _bones.Return();
         _pool.Return(this);
     }
 

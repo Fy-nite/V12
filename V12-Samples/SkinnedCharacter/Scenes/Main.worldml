@@ -1,0 +1,41 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Element name="SkinnedCharacter">
+  <Element name="Environment">
+    <Component type="EnvironmentComponent" Mode="SolidColor" SkyR="0.12" SkyG="0.14" SkyB="0.18" AmbientR="0.3" AmbientG="0.33" AmbientB="0.4" AmbientEnergy="1" ShadowsEnabled="True" ShadowDistance="40" ShadowBias="2" ShadowNormalBias="1" ShadowOpacity="1" />
+  </Element>
+
+  <Element name="Sun">
+    <LocalTransform>
+      <Rotation>-42,-30,0</Rotation>
+    </LocalTransform>
+    <Component type="GenericLightComponent" Type="Directional" Energy="1.5" ColorR="1" ColorG="0.96" ColorB="0.9" Range="100" Angle="45" SpotSoftness="0.5" />
+  </Element>
+
+  <Element name="Ground">
+    <LocalTransform>
+      <Position>0,-0.1,0</Position>
+    </LocalTransform>
+    <Component type="MeshComponent" Shape="Box" Width="30" Height="0.2" Depth="30" />
+    <Component type="MeshRenderer" MeshTargetName="Mesh" />
+    <Component type="MaterialComponent" R="0.18" G="0.19" B="0.22" A="1" Metallic="0" Roughness="0.9" />
+  </Element>
+
+  <Element name="Camera">
+    <LocalTransform>
+      <Position>0,1.2,3.6</Position>
+    </LocalTransform>
+    <Component type="CameraComponent" Projection="Perspective" Fov="45" NearClip="0.05" FarClip="200" OrthoSize="5" IsCurrent="True" />
+  </Element>
+
+  <Element name="Character">
+    <LocalTransform>
+      <Position>0,0,0</Position>
+    </LocalTransform>
+    <Component type="SkeletalManagerComponent" AssetPath="v12://Assets/CesiumMan.glb" SampleRate="30" AutoPlay="true" LoopOnLoad="true" />
+    <Component type="SkeletalPlayerComponent" Speed="1" LoopOnLoad="true" />
+  </Element>
+
+  <Element name="CameraRig">
+    <Component type="SkinnedCharacterController" />
+  </Element>
+</Element>

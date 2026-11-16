@@ -1,0 +1,15 @@
+{
+  "Version": 1,
+  "Engine": "v12",
+  "Worlds": [
+    { "Name": "SkinnedCharacter", "Entry": "Scenes/Main.worldml", "TemplatesDir": "" }
+  ],
+  "Assets": {
+    "CesiumMan.glb": "Assets/CesiumMan.glb"
+  },
+  "Paks": [],
+  "Scripts": [],
+  "CSharpScripts": [],
+  "Dependencies": [],
+  "Xr": false
+}

@@ -53,6 +53,12 @@ public sealed class NovaV2InputHandler
             return false;
         }
 
+        // Released pointer motion is absolute drift, not look input. Dropping it
+        // here keeps a re-capture from snapping the view by the distance the
+        // cursor travelled while the game had menus open.
+        if (!MouseCaptured)
+            _accumulatedMouseLook = Vector2.Zero;
+
         float moveX = 0f;
         float moveY = 0f;
         float lookX = 0f;

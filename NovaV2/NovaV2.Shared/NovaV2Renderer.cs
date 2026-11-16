@@ -9,10 +9,10 @@ namespace NovaV2.Rendering;
 /// All members must be called on the Godot main thread: resource creation,
 /// node mutation and presentation are Godot-side operations.
 ///
-/// v1 scope: flat world transforms, one surface per mesh, 2D textures, built-in
-/// StandardMaterial3D materials, cameras/lights/environment and SubViewport
-/// render targets. UI, text, skinning, instancing and custom shaders are not
-/// implemented yet.
+/// Scope: flat world transforms, built-in PBR materials plus GDShader custom
+/// materials, cameras/lights/environment, GPU particle emitters, SubViewport
+/// render targets, and a single surface per mesh. Skinning, instancing and
+/// sprite/text nodes are not implemented yet.
 /// </summary>
 public sealed class NovaV2Renderer : IRenderer, IRendererLifecycle
 {
@@ -65,12 +65,30 @@ public sealed class NovaV2Renderer : IRenderer, IRendererLifecycle
         public MaterialHandle Material;
     }
 
+    private sealed class ParticleNode
+    {
+        public GpuParticles3D Node = null!;
+        public ParticleProcessMaterial Process = null!;
+        public QuadMesh Quad = null!;
+        public float Size;
+    }
+
+    private sealed class SkinNode
+    {
+        public Node3D Root = null!;
+        public Skeleton3D Skeleton = null!;
+        public Godot.Skin Skin = null!;
+        public int BoneCount;
+    }
+
     private readonly object _lock = new();
     private readonly Dictionary<uint, MeshRecord> _meshes = new();
     private readonly Dictionary<uint, TextureRecord> _textures = new();
     private readonly Dictionary<uint, ShaderRecord> _shaders = new();
     private readonly Dictionary<uint, MaterialRecord> _materials = new();
     private readonly Dictionary<uint, RenderTargetRecord> _targets = new();
+    private readonly Dictionary<long, ParticleNode> _particles = new();
+    private readonly Dictionary<long, SkinNode> _skins = new();
     private readonly Dictionary<(long Id, int Index), ItemNode> _items = new();
     private readonly Dictionary<(long Id, StereoEye Eye), Camera3D> _cameras = new();
     private readonly Dictionary<long, Light3D> _lights = new();
@@ -125,7 +143,9 @@ public sealed class NovaV2Renderer : IRenderer, IRendererLifecycle
         RendererFeature.Bloom |
         RendererFeature.Ssao |
         RendererFeature.Ssil |
-        RendererFeature.Ssr);
+        RendererFeature.Ssr |
+        RendererFeature.Particles |
+        RendererFeature.Skeletons);
 
     public DeviceEpoch CurrentEpoch
     {
@@ -614,7 +634,9 @@ public sealed class NovaV2Renderer : IRenderer, IRendererLifecycle
         var viewportTargets = new Dictionary<long, SubViewport>();
         _currentEnvironment = frame.Environment ?? EnvironmentData.Default;
         ApplyViewsLocked(frame, viewportTargets);
+        ApplySkinsLocked(frame);
         ApplyItemsLocked(frame, viewportTargets);
+        ApplyParticlesLocked(frame);
         ApplyLightsLocked(frame);
         ApplyEnvironmentLocked(_currentEnvironment);
     }
@@ -683,6 +705,97 @@ public sealed class NovaV2Renderer : IRenderer, IRendererLifecycle
         }
     }
 
+    private void ApplySkinsLocked(in RenderFrame frame)
+    {
+        var active = new HashSet<long>();
+
+        foreach (var skin in frame.Skins.Span)
+        {
+            if (!skin.Active || skin.BoneCount <= 0)
+                continue;
+
+            active.Add(skin.ElementId);
+
+            if (!_skins.TryGetValue(skin.ElementId, out var record) ||
+                !GodotObject.IsInstanceValid(record.Root) ||
+                record.BoneCount != skin.BoneCount)
+            {
+                if (record is not null && GodotObject.IsInstanceValid(record.Root))
+                    record.Root.QueueFree();
+
+                record = CreateSkinNode(skin);
+                _skins[skin.ElementId] = record;
+            }
+
+            record.Root.GlobalTransform = GodotInterop.ToTransform(skin.World);
+
+            var bones = frame.BoneTransforms.Span;
+            for (int bone = 0; bone < skin.BoneCount; bone++)
+            {
+                int index = skin.BoneStart + bone;
+                if (index >= bones.Length)
+                    break;
+
+                var local = GodotInterop.ToTransform(bones[index]);
+                record.Skeleton.SetBonePosePosition(bone, local.Origin);
+                record.Skeleton.SetBonePoseRotation(bone, local.Basis.GetRotationQuaternion());
+                record.Skeleton.SetBonePoseScale(bone, local.Basis.Scale);
+            }
+
+            // Skinning reads global poses; make this frame's pose visible to the
+            // skinning pass without waiting for the next idle update.
+            record.Skeleton.ForceUpdateAllBoneTransforms();
+        }
+
+        foreach (long id in _skins.Keys.ToArray())
+        {
+            if (active.Contains(id))
+                continue;
+
+            var record = _skins[id];
+            if (GodotObject.IsInstanceValid(record.Root))
+                record.Root.QueueFree();
+            _skins.Remove(id);
+        }
+    }
+
+    private SkinNode CreateSkinNode(in SkinItem skin)
+    {
+        var root = new Node3D { Name = $"NovaV2Skin_{skin.ElementId}" };
+        _root.AddChild(root);
+
+        var skeleton = new Skeleton3D { Name = "Skeleton3D" };
+        root.AddChild(skeleton);
+
+        for (int bone = 0; bone < skin.BoneCount; bone++)
+            skeleton.AddBone($"bone_{bone}");
+
+        for (int bone = 0; bone < skin.BoneCount; bone++)
+        {
+            int parent = bone < skin.BoneParents.Length
+                ? skin.BoneParents.Span[bone]
+                : -1;
+            skeleton.SetBoneParent(bone, Math.Clamp(parent, -1, skin.BoneCount - 1));
+        }
+
+        var godotSkin = new Godot.Skin();
+        for (int bone = 0; bone < skin.BoneCount; bone++)
+        {
+            System.Numerics.Matrix4x4 inverse = bone < skin.InverseBindPoses.Length
+                ? skin.InverseBindPoses.Span[bone]
+                : System.Numerics.Matrix4x4.Identity;
+            godotSkin.AddBind(bone, GodotInterop.ToTransform(inverse));
+        }
+
+        return new SkinNode
+        {
+            Root = root,
+            Skeleton = skeleton,
+            Skin = godotSkin,
+            BoneCount = skin.BoneCount,
+        };
+    }
+
     private void ApplyItemsLocked(in RenderFrame frame, IReadOnlyDictionary<long, SubViewport> viewportTargets)
     {
         var active = new HashSet<(long, int)>();
@@ -704,8 +817,18 @@ public sealed class NovaV2Renderer : IRenderer, IRendererLifecycle
                 _items[key] = node;
             }
 
+            SkinNode? skinNode = null;
+            if (item.SkinIndex >= 0 && item.SkinIndex < frame.Skins.Length)
+            {
+                SkinItem skinItem = frame.Skins.Span[item.SkinIndex];
+                if (_skins.TryGetValue(skinItem.ElementId, out var foundSkin))
+                    skinNode = foundSkin;
+            }
+
             Node parent = _root;
-            if (item.ViewportId != 0 && viewportTargets.TryGetValue(item.ViewportId, out var viewport))
+            if (skinNode is not null)
+                parent = skinNode.Root;
+            else if (item.ViewportId != 0 && viewportTargets.TryGetValue(item.ViewportId, out var viewport))
                 parent = viewport;
 
             if (node.Node.GetParent() != parent)
@@ -717,12 +840,26 @@ public sealed class NovaV2Renderer : IRenderer, IRendererLifecycle
             node.Mesh = item.Mesh;
             node.Material = item.Material;
             node.Node.Mesh = mesh.Mesh;
-            node.Node.GlobalTransform = GodotInterop.ToTransform(item.World);
             node.Node.Layers = item.LayerMask == 0 ? uint.MaxValue : item.LayerMask;
             node.Node.Visible = true;
             node.Node.CastShadow = material.Desc.CastShadows
                 ? GeometryInstance3D.ShadowCastingSetting.On
                 : GeometryInstance3D.ShadowCastingSetting.Off;
+
+            if (skinNode is not null)
+            {
+                // The skin root carries the element world; the mesh sits under it
+                // at identity so Godot's bone matrices and mesh share one space.
+                node.Node.Transform = Transform3D.Identity;
+                node.Node.Skeleton = node.Node.GetPathTo(skinNode.Skeleton);
+                node.Node.Skin = skinNode.Skin;
+            }
+            else
+            {
+                node.Node.GlobalTransform = GodotInterop.ToTransform(item.World);
+                node.Node.Skeleton = new NodePath();
+                node.Node.Skin = null;
+            }
 
             if (item.OverridesIndex >= 0)
             {
@@ -750,6 +887,118 @@ public sealed class NovaV2Renderer : IRenderer, IRendererLifecycle
                 item.Node.QueueFree();
             _items.Remove(key);
             _overrideMaterials.Remove(key);
+        }
+    }
+
+    private void ApplyParticlesLocked(in RenderFrame frame)
+    {
+        var active = new HashSet<long>();
+
+        foreach (var particle in frame.Particles.Span)
+        {
+            if (!particle.Active)
+                continue;
+
+            active.Add(particle.ElementId);
+
+            if (!_particles.TryGetValue(particle.ElementId, out var record) ||
+                !GodotObject.IsInstanceValid(record.Node))
+            {
+                var process = new ParticleProcessMaterial
+                {
+                    EmissionShape = ParticleProcessMaterial.EmissionShapeEnum.Sphere,
+                    ParticleFlagAlignY = false,
+                };
+
+                var quadMaterial = new StandardMaterial3D
+                {
+                    ShadingMode = BaseMaterial3D.ShadingModeEnum.Unshaded,
+                    Transparency = BaseMaterial3D.TransparencyEnum.Alpha,
+                    VertexColorUseAsAlbedo = true,
+                    CullMode = BaseMaterial3D.CullModeEnum.Disabled,
+                    // Particle billboards need the particle anim mode to pick up
+                    // the per-particle rotation; one frame means "no animation".
+                    BillboardMode = BaseMaterial3D.BillboardModeEnum.Particles,
+                    ParticlesAnimHFrames = 1,
+                    ParticlesAnimVFrames = 1,
+                };
+
+                var quad = new QuadMesh
+                {
+                    Material = quadMaterial,
+                    Size = new Vector2(particle.Size, particle.Size),
+                };
+
+                var node = new GpuParticles3D
+                {
+                    Name = $"NovaV2Particles_{particle.ElementId}",
+                    ProcessMaterial = process,
+                    DrawPass1 = quad,
+                    // GPU particles simulate at a fixed rate by default (30 Hz);
+                    // 0 makes them tick every rendered frame instead.
+                    FixedFps = 0,
+                    Interpolate = true,
+                    Explosiveness = 0f,
+                    Randomness = 0.5f,
+                    // The default 4 m box culls emitters that emit further out.
+                    VisibilityAabb = new Aabb(
+                        new Vector3(-64f, -64f, -64f),
+                        new Vector3(128f, 128f, 128f)),
+                };
+
+                _root.AddChild(node);
+                record = new ParticleNode
+                {
+                    Node = node,
+                    Process = process,
+                    Quad = quad,
+                    Size = particle.Size,
+                };
+                _particles[particle.ElementId] = record;
+            }
+
+            if (Math.Abs(record.Size - particle.Size) > 0.0001f)
+            {
+                record.Size = particle.Size;
+                record.Quad.Size = new Vector2(particle.Size, particle.Size);
+            }
+
+            record.Node.GlobalTransform = GodotInterop.ToTransform(particle.World);
+            record.Node.Layers = particle.LayerMask == 0 ? uint.MaxValue : particle.LayerMask;
+            record.Node.Amount = Math.Max(1, particle.Amount);
+            record.Node.Lifetime = Math.Max(0.01f, particle.Lifetime);
+            record.Node.OneShot = particle.OneShot;
+            record.Node.Emitting = particle.Emitting;
+
+            var processMaterial = record.Process;
+            processMaterial.EmissionShape = particle.EmissionRadius > 0f
+                ? ParticleProcessMaterial.EmissionShapeEnum.Sphere
+                : ParticleProcessMaterial.EmissionShapeEnum.Point;
+            processMaterial.EmissionSphereRadius = Math.Max(0.0001f, particle.EmissionRadius);
+            processMaterial.Direction = particle.Direction.LengthSquared() > 0.000001f
+                ? new Vector3(
+                    particle.Direction.X,
+                    particle.Direction.Y,
+                    particle.Direction.Z).Normalized()
+                : Vector3.Up;
+            processMaterial.Spread = Math.Clamp(particle.Spread, 0f, 180f);
+            processMaterial.InitialVelocityMin = Math.Max(0f, particle.SpeedMin);
+            processMaterial.InitialVelocityMax = Math.Max(particle.SpeedMin, particle.SpeedMax);
+            processMaterial.Gravity = new Vector3(0f, -particle.Gravity, 0f);
+            processMaterial.Color = new Color(
+                particle.Color.X,
+                particle.Color.Y,
+                particle.Color.Z,
+                particle.Color.W);
+        }
+
+        foreach (var id in _particles.Keys.ToArray())
+        {
+            if (active.Contains(id)) continue;
+            var record = _particles[id];
+            if (GodotObject.IsInstanceValid(record.Node))
+                record.Node.QueueFree();
+            _particles.Remove(id);
         }
     }
 
@@ -1510,6 +1759,20 @@ public sealed class NovaV2Renderer : IRenderer, IRendererLifecycle
                 light.QueueFree();
         }
         _lights.Clear();
+
+        foreach (var record in _particles.Values)
+        {
+            if (GodotObject.IsInstanceValid(record.Node))
+                record.Node.QueueFree();
+        }
+        _particles.Clear();
+
+        foreach (var record in _skins.Values)
+        {
+            if (GodotObject.IsInstanceValid(record.Root))
+                record.Root.QueueFree();
+        }
+        _skins.Clear();
 
         foreach (var target in _targets.Values)
         {

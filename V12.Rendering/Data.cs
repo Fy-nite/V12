@@ -181,6 +181,109 @@ public static class MeshDataFactory
                 ? ReadOnlyMemory<SubmeshRange>.Empty
                 : new[] { new SubmeshRange(0, indices.Length) });
     }
+
+    /// <summary>
+    /// Builds a hardware-skinned mesh: Position, Normal, UV0, Tangent, Color,
+    /// SkinWeights (four floats) and SkinIndices (four bytes) in one interleaved
+    /// stream. <paramref name="boneIndices"/> is four indices per vertex and is
+    /// clamped to 0-255; <paramref name="boneWeights"/> is four weights per
+    /// vertex and is normalised here. Indices are UInt32.
+    /// </summary>
+    public static MeshData CreateSkinned(
+        ReadOnlySpan<Vector3> positions,
+        ReadOnlySpan<Vector3> normals,
+        ReadOnlySpan<Vector2> uvs,
+        ReadOnlySpan<Vector4> tangents,
+        ReadOnlySpan<Vector4> colors,
+        ReadOnlySpan<float> boneWeights,
+        ReadOnlySpan<int> boneIndices,
+        ReadOnlySpan<uint> indices)
+    {
+        int count = positions.Length;
+        if (normals.Length != count || uvs.Length != count ||
+            tangents.Length != count || colors.Length != count ||
+            boneWeights.Length != count * 4 || boneIndices.Length != count * 4)
+        {
+            throw new ArgumentException(
+                "Skinned mesh arrays must match the vertex count (bones use four entries per vertex).");
+        }
+
+        const int strideFloats = 3 + 3 + 2 + 4 + 4 + 4;
+        const int strideBytes = strideFloats * sizeof(float) + 4;
+        var packed = new byte[count * strideBytes];
+
+        for (int i = 0; i < count; i++)
+        {
+            int o = i * strideBytes;
+
+            WriteFloat(packed, o + 0, positions[i].X);
+            WriteFloat(packed, o + 4, positions[i].Y);
+            WriteFloat(packed, o + 8, positions[i].Z);
+
+            WriteFloat(packed, o + 12, normals[i].X);
+            WriteFloat(packed, o + 16, normals[i].Y);
+            WriteFloat(packed, o + 20, normals[i].Z);
+
+            WriteFloat(packed, o + 24, uvs[i].X);
+            WriteFloat(packed, o + 28, uvs[i].Y);
+
+            WriteFloat(packed, o + 32, tangents[i].X);
+            WriteFloat(packed, o + 36, tangents[i].Y);
+            WriteFloat(packed, o + 40, tangents[i].Z);
+            WriteFloat(packed, o + 44, tangents[i].W);
+
+            WriteFloat(packed, o + 48, colors[i].X);
+            WriteFloat(packed, o + 52, colors[i].Y);
+            WriteFloat(packed, o + 56, colors[i].Z);
+            WriteFloat(packed, o + 60, colors[i].W);
+
+            float w0 = boneWeights[i * 4];
+            float w1 = boneWeights[i * 4 + 1];
+            float w2 = boneWeights[i * 4 + 2];
+            float w3 = boneWeights[i * 4 + 3];
+            float sum = w0 + w1 + w2 + w3;
+            if (sum <= 1e-6f)
+            {
+                w0 = 1f;
+                w1 = w2 = w3 = 0f;
+                sum = 1f;
+            }
+
+            WriteFloat(packed, o + 64, w0 / sum);
+            WriteFloat(packed, o + 68, w1 / sum);
+            WriteFloat(packed, o + 72, w2 / sum);
+            WriteFloat(packed, o + 76, w3 / sum);
+
+            for (int b = 0; b < 4; b++)
+            {
+                int bone = boneIndices[i * 4 + b];
+                packed[o + 80 + b] = (byte)Math.Clamp(bone, 0, 255);
+            }
+        }
+
+        var layout = new[]
+        {
+            new VertexAttribute(VertexSemantic.Position, VertexFormat.Float3, 0, 0),
+            new VertexAttribute(VertexSemantic.Normal, VertexFormat.Float3, 12, 0),
+            new VertexAttribute(VertexSemantic.Uv0, VertexFormat.Float2, 24, 0),
+            new VertexAttribute(VertexSemantic.Tangent, VertexFormat.Float4, 32, 0),
+            new VertexAttribute(VertexSemantic.Color, VertexFormat.Float4, 48, 0),
+            new VertexAttribute(VertexSemantic.SkinWeights, VertexFormat.Float4, 64, 0),
+            new VertexAttribute(VertexSemantic.SkinIndices, VertexFormat.UByte4, 80, 0),
+        };
+
+        return new MeshData(
+            new[] { new VertexStream(strideBytes, packed) },
+            layout,
+            IndexFormat.UInt32,
+            MemoryMarshal.AsBytes(indices).ToArray(),
+            indices.Length == 0
+                ? ReadOnlyMemory<SubmeshRange>.Empty
+                : new[] { new SubmeshRange(0, indices.Length) });
+    }
+
+    private static void WriteFloat(byte[] buffer, int offset, float value) =>
+        MemoryMarshal.Write(buffer.AsSpan(offset), in value);
 }
 
 // ── Textures and targets ────────────────────────────────────────────────────
@@ -482,6 +585,75 @@ public struct DrawItem
     public bool Active;
     /// <summary>Index into <see cref="RenderFrame.DrawOverrides"/>; -1 means none.</summary>
     public int OverridesIndex;
+    /// <summary>Index into <see cref="RenderFrame.Skins"/>; -1 means the mesh is not skinned.</summary>
+    public int SkinIndex;
+}
+
+/// <summary>
+/// One skeleton driving one or more skinned meshes. Bone parent indices and
+/// inverse bind poses are static; the pose arrives through
+/// <see cref="RenderFrame.BoneTransforms"/> at <see cref="BoneStart"/>.
+/// </summary>
+public struct SkinItem
+{
+    public long ElementId;
+    public bool Active;
+
+    /// <summary>World transform of the skeleton root. Skinned meshes share it.</summary>
+    public Matrix4x4 World;
+
+    /// <summary>Offset of this skeleton's first local bone transform in the frame.</summary>
+    public int BoneStart;
+    public int BoneCount;
+
+    /// <summary>Parent bone index per bone, or -1 for a root.</summary>
+    public ReadOnlyMemory<int> BoneParents;
+
+    /// <summary>Inverse bind pose per bone, in skeleton space.</summary>
+    public ReadOnlyMemory<Matrix4x4> InverseBindPoses;
+
+    public uint LayerMask;
+}
+
+/// <summary>
+/// One particle emitter. Placement is the emitter's element world; every other
+/// field is a simulation parameter the backend maps onto its particle system.
+/// The engine never simulates particles, so a backend that cannot run them may
+/// ignore these items.
+/// </summary>
+public struct ParticleItem
+{
+    public long ElementId;
+    public bool Active;
+    public Matrix4x4 World;
+
+    /// <summary>Particles emitted per cycle.</summary>
+    public int Amount;
+    /// <summary>Seconds each particle lives.</summary>
+    public float Lifetime;
+
+    /// <summary>Radius of the spawn volume, in world units. 0 = a point.</summary>
+    public float EmissionRadius;
+
+    /// <summary>Initial speed range along <see cref="Direction"/>.</summary>
+    public float SpeedMin;
+    public float SpeedMax;
+
+    /// <summary>Emission direction, normalised by the backend.</summary>
+    public Vector3 Direction;
+    /// <summary>Random cone around the direction, in degrees (0-180).</summary>
+    public float Spread;
+
+    /// <summary>Quad size in world units.</summary>
+    public float Size;
+    /// <summary>Linear RGBA tint multiplied into each particle.</summary>
+    public Vector4 Color;
+    /// <summary>Acceleration along world -Y, in m/s^2.</summary>
+    public float Gravity;
+
+    public bool Emitting;
+    public bool OneShot;
+    public uint LayerMask;
 }
 
 /// <summary>Immutable frame view. The renderer reads only this and never the live world.</summary>
@@ -491,6 +663,10 @@ public struct RenderFrame
     public ReadOnlyMemory<DrawItem> Items;
     public ReadOnlyMemory<DrawOverrides> DrawOverrides;
     public ReadOnlyMemory<LightItem> Lights;
+    public ReadOnlyMemory<ParticleItem> Particles;
+    public ReadOnlyMemory<SkinItem> Skins;
+    /// <summary>Parent-space (local) bone transforms, addressed by a skin's bone range.</summary>
+    public ReadOnlyMemory<Matrix4x4> BoneTransforms;
     public EnvironmentData Environment;
     public float Time;
     public float DeltaTime;
@@ -519,6 +695,7 @@ public enum RendererFeature
     Ssgi = 1 << 14,
     Ssr = 1 << 15,
     Dof = 1 << 16,
+    Particles = 1 << 17,
 }
 
 public readonly record struct RendererCapabilities(RendererFeature Features)

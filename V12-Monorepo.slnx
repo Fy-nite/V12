@@ -39,6 +39,7 @@
   <Folder Name="/V12-Basic/">
     <Project Path="V12.Basic/V12.Basic.csproj" />
     <Project Path="V12.Pak/V12.Pak.csproj" />
+    <Project Path="V12.Skeletal/V12.Skeletal.csproj" />
   </Folder>
   <Folder Name="/Tests/">
     <Project Path="V12.Architecture.Tests/V12.Architecture.Tests.csproj" />

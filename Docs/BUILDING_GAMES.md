@@ -217,6 +217,134 @@ using var load = root.LoadPak("game.v12pak", new V12PakOptions
 });
 ```
 
+### Mouse capture
+
+The host owns the pointer. Gameplay asks for it through `IMouseCapture`
+(`V12.Rendering`), never through a windowing API:
+
+```csharp
+var mouse = gameRoot.MouseCapture;
+mouse?.Capture();                 // lock for relative look
+mouse?.Release();                 // give the cursor back for menus
+bool captured = mouse?.IsCaptured == true;
+```
+
+The service is optional: a headless or test host leaves it null, so null-check
+once and cache the answer. NovaV2 registers it as `IMouseCapture` and wires the
+Escape key to the same toggle, so `CaptureChanged` is the single source of truth
+for a pause menu. While released, accumulated mouse-look delta is discarded, so
+re-capturing never snaps the view.
+
+### Custom material shaders
+
+`MaterialComponent.ShaderUri` compiles a registered V12 shader for that surface:
+
+```csharp
+element.AddComponent(new MaterialComponent
+{
+    ShaderUri = "shader://toon",
+    AlbedoTexture = "textures/wood.png",
+    Roughness = 0.2f,
+});
+```
+
+Manifests are registered automatically from a project's `shaders` folder and
+from a pak's assets. A shader that declares these uniforms gets the material
+fields with no extra plumbing:
+
+| Uniform | Source |
+|---|---|
+| `albedoTex`, `normalTex`, `metallicTex`, `roughnessTex`, `emissionTex`, `occlusionTex` | the matching material texture |
+| `albedoColor` (also `tint`, `baseColor`) | R/G/B/A |
+| `metallic`, `roughness`, `normalScale`, `alphaCutoff` | the matching field |
+| `emission`, `emissionEnergy` | emission fields |
+| `uvOffset`, `uvScale` | UV1 fields |
+
+Other uniforms keep their shader defaults. A URI that is not registered logs a
+warning and falls back to the built-in lit shader, so a missing manifest never
+blanks a scene.
+
+### Particles
+
+`ParticleEmitterComponent` is simulation data for the renderer; the engine does
+not step particles.
+
+```csharp
+var sparks = new Element("Sparks");
+sparks.SetPosition(0f, 1f, 0f);
+sparks.AddComponent(new ParticleEmitterComponent
+{
+    Amount = 48,
+    Lifetime = 0.8f,
+    SpeedMin = 1f,
+    SpeedMax = 3f,
+    SpreadAngle = 35f,
+    Size = 0.08f,
+    ColorR = 1f,
+    ColorG = 0.6f,
+    ColorB = 0.1f,
+    Gravity = 9.81f,
+});
+```
+
+`Emitting = false` stops emission without destroying the emitter; flip it back
+to true to restart a one-shot burst. Backends that do not advertise
+`RendererFeature.Particles` ignore the emitter.
+
+### Skybox
+
+Set the world's `EnvironmentComponent` to `BackgroundMode.Skybox` and point
+`SkyboxPath` at an equirectangular panorama:
+
+```csharp
+environment.Mode = BackgroundMode.Skybox;
+environment.SkyboxPath = "textures/sky.png";   // or v12://..., res://...
+```
+
+The host resolves and uploads the panorama once per path; a failed or empty path
+falls back to the solid sky colour.
+
+### Skinned and animated characters
+
+The `V12.Skeletal` module provides a manager (rig, clips, parts) and a player
+(clip, time, speed, pause):
+
+```csharp
+var character = new Element("Character");
+character.SetPosition(0f, 0f, 0f);
+
+character.AddComponent(new SkeletalManagerComponent
+{
+    AssetPath = "v12://Assets/CesiumMan.glb",
+});
+
+character.AddComponent(new SkeletalPlayerComponent
+{
+    PlayOnLoad = "Walk",     // empty plays the manager's first clip
+    LoopOnLoad = true,
+});
+
+world.AddElement(character);
+```
+
+Playback lives on the player, including time-based seeking:
+
+```csharp
+player.Play("Run", loop: true, blendTime: 0.25f);
+player.Time = 0.75f;         // seek to 0.75 s
+player.Speed = 0.5f;
+player.Pause();
+player.Resume();
+```
+
+The runtime backend (`ISkeletalAnimator`) and importer (`ISkeletalAssetImporter`)
+are swappable by name; the default is Prowl.Motion + Prowl.Clay. See
+[`ANIMATION.md`](ANIMATION.md) for the components, bone attachment and the full
+asset model.
+
+
+
+
 ## 9. Pitfalls
 
 - Do not add a TransformComponent. It no longer exists.

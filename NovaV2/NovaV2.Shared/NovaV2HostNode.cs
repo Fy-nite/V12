@@ -15,6 +15,7 @@ public partial class NovaV2HostNode : Node3D
     [Export] public bool CreateRootIfMissing { get; set; } = true;
     [Export] public bool LockMouseOnStart { get; set; }
     [Export] public string PakPath { get; set; } = "";
+    [Export] public string ShaderDirectory { get; set; } = "";
     [Export] public string GamepakDirectory { get; set; } = "gamepaks";
     [Export] public string ForceGamepak { get; set; } = "";
     [Export] public bool AutoStartFirstGamepak { get; set; } = true;
@@ -101,6 +102,7 @@ public partial class NovaV2HostNode : Node3D
         var options = new NovaV2RuntimeOptions
         {
             PakPath = string.IsNullOrWhiteSpace(PakPath) ? null : PakPath,
+            ShaderDirectory = string.IsNullOrWhiteSpace(ShaderDirectory) ? null : ShaderDirectory,
             GamepakDirectory = string.IsNullOrWhiteSpace(GamepakDirectory) ? string.Empty : GamepakDirectory,
             ForceGamepak = string.IsNullOrWhiteSpace(ForceGamepak) ? null : ForceGamepak,
             AutoStartFirstGamepak = AutoStartFirstGamepak,
