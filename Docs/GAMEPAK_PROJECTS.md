@@ -263,6 +263,16 @@ Example:
 Manifest paths are validated against the staged directory before packing, so a
 typo fails the build instead of producing a pak with an empty world.
 
+Inside a pak, `v12://` URIs resolve by manifest key (`v12://textures/crate.png`)
+and by archive path (`v12://assets/textures/crate.png`), case-insensitively. A
+world written against a `--game` folder using `v12://Assets/...` therefore keeps
+working once it ships packaged.
+
+Packaged paks extract once per unique content to
+`%TEMP%/V12Paks/{user}/{pakName}_{sha256}/` (or `V12_PAK_CACHE`). Restarting a
+game reuses that extraction instead of adding another copy; `V12PakCache.Purge()`
+deletes the cache.
+
 ---
 
 ## 6. Build and run
@@ -285,12 +295,22 @@ vcsdk pack D:\git\MyGame --strict
 
 # build for several platforms in one pass
 vcsdk pack D:\git\MyGame --runtime win-x64,linux-x64,osx-arm64 -o dist
+
+# one pak that runs everywhere (all platforms' natives inside it)
+vcsdk pack D:\git\MyGame --runtime any
 ```
 
 The default target RID is the host RID, and the matching renderer build is
 copied from `renderers/<id>/<rid>/`. The result is `bin/<name>.v12pak` plus the
 renderer executable renamed to `<name>` (`<name>.exe` on Windows). Multi-RID
 builds produce `dist/<name>-<rid>.v12pak` and the matching host for each RID.
+
+`--runtime any` publishes without a RID, which keeps every platform's native
+libraries under `bin/runtimes/<rid>/native/` in the one pak (Windows `assimp.dll`,
+Linux `libassimp.so`, macOS `libassimp.dylib`). The loader probes the folder that
+matches the machine it runs on, so a single pak plus the matching renderer runs on
+all of them; no per-platform pak is needed unless you want to shave the archive
+size. A RID-specific build stages that platform's natives flattened at `bin/`.
 
 For `osx-*` targets, a Godot/Nova `.app` is deployed as `<name>.app` with its
 inner `Contents/MacOS` executable renamed, `Info.plist` `CFBundleExecutable`
