@@ -1,0 +1,41 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <RootNamespace>SpaceFlight</RootNamespace>
+
+    <!-- Gamepaks are loaded as plugins by the host. The build copies this
+         assembly into NovaV2.Host/gamepaks/SpaceFlight so the Godot host can
+         discover it without a separate packaging step. -->
+    <EnableDynamicLoading>true</EnableDynamicLoading>
+    <CopyLocalLockFileAssemblies>true</CopyLocalLockFileAssemblies>
+    <IsPackable>false</IsPackable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="$(V12EngineProject)" />
+    <ProjectReference Include="$(V12BasicProject)" />
+    <ProjectReference Include="$(V12PhysicsProject)" />
+    <ProjectReference Include="$(V12GravityProject)" />
+  </ItemGroup>
+
+  <Target Name="DeployToNovaV2Gamepaks" AfterTargets="Build">
+    <PropertyGroup>
+      <_SpaceFlightGamepakDir>$(MSBuildThisFileDirectory)..\..\NovaV2\NovaV2.Host\gamepaks\SpaceFlight\</_SpaceFlightGamepakDir>
+    </PropertyGroup>
+    <ItemGroup>
+      <_SpaceFlightAsset Include="$(MSBuildThisFileDirectory)Assets\**\*" />
+    </ItemGroup>
+    <MakeDir Directories="$(_SpaceFlightGamepakDir)" />
+    <Copy SourceFiles="$(TargetPath)" DestinationFolder="$(_SpaceFlightGamepakDir)" />
+    <Copy SourceFiles="$(TargetDir)$(TargetName).pdb"
+          DestinationFolder="$(_SpaceFlightGamepakDir)"
+          Condition="Exists('$(TargetDir)$(TargetName).pdb')" />
+    <Copy SourceFiles="@(_SpaceFlightAsset)"
+          DestinationFiles="@(_SpaceFlightAsset->'$(_SpaceFlightGamepakDir)Assets\%(RecursiveDir)%(Filename)%(Extension)')" />
+  </Target>
+
+</Project>

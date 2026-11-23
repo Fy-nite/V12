@@ -40,14 +40,13 @@ public sealed class NovaV2Runtime : IDisposable
     private readonly GodotMouseCapture _mouseCapture;
     private readonly OwnAudioEngine _audio;
     private readonly PaperUi _ui;
-    private readonly RenderTargetHandle _uiTarget;
+    private readonly V12.Paper.PaperUiSource _paperSource = new();
+    private RenderTargetHandle? _presentedTarget;
     private readonly NovaV2XRService? _xr;
     private readonly int _initialWidth;
     private readonly int _initialHeight;
     private int _viewportWidth;
     private int _viewportHeight;
-
-    private const long UiViewId = -1000;
 
     private V12PakLoadResult? _loadedPakArchive;
     private float _time;
@@ -55,6 +54,8 @@ public sealed class NovaV2Runtime : IDisposable
     private bool _disposed;
     private RenderEnvironmentData? _lastEnvironment;
     private readonly Dictionary<string, TextureHandle> _skyboxTextures = new(StringComparer.OrdinalIgnoreCase);
+    private static readonly bool DebugInput =
+        System.Environment.GetEnvironmentVariable("V12_MP_DEBUG") == "1";
 
     public NovaV2Runtime(Node3D host, GameRoot root, NovaV2RuntimeOptions? options = null)
     {
@@ -107,21 +108,42 @@ public sealed class NovaV2Runtime : IDisposable
         var inputService = root.Registry.Get<InputService>()
                            ?? throw new InvalidOperationException("InputService is not registered.");
         _ui = new PaperUi(inputService, _viewportWidth, _viewportHeight);
-        _uiTarget = _renderer.CreateRenderTarget(new RenderTargetDesc(
-            _viewportWidth,
-            _viewportHeight,
-            Transparent: true,
-            OwnWorld3D: true));
-        _renderer.PresentRenderTarget(_uiTarget);
+        // World canvases belong to _paperSource; without this the screen
+        // overlay draws a second, screen-space copy of every world canvas.
+        _ui.Paper.WorldCanvasesExternal = true;
+        _ui.Paper.ViewportTextureProvider =
+            viewId => new V12.Core.UI.Paper.PaperTextureRef(viewId);
+        root.Registry.RegisterOrReplace("IViewportRegistry", _renderer);
 
         _producer = new RenderFrameProducer(
             _renderer,
             _initialWidth,
             _initialHeight,
-            textureLoader: GodotTextureLoader.Load);
+            textureLoader: GodotTextureLoader.Load,
+            input: inputService,
+            uiSource: _paperSource)
+        {
+            // NovaV2 composites the UI as a full-screen overlay, so the engine
+            // owns the target and names it in RenderFrame.PresentTarget. The
+            // runtime never creates or names a UI target itself.
+            ScreenUiTargetPolicy = UiTargetPolicy.OwnTarget,
+        };
 
+        // XR is always *available* unless the host opts out. Creating the
+        // service builds the rig but does not initialise OpenXR; StartXR is the
+        // explicit "go into XR now" signal, so the same build runs flat on a
+        // phone and can enter VR later from gameplay.
         if (_options.EnableXR)
-            _xr = new NovaV2XRService(host, root, inputService);
+            _xr = new NovaV2XRService(host, root, inputService, start: _options.StartXR);
+
+        // A --game hot-reload service is registered before this runtime exists.
+        // Its world swap recreates the Player/XR elements, so drop the XR cache
+        // as soon as the new tree is in place.
+        if (_xr is not null &&
+            root.Registry.Get<NovaV2HotReloadService>("NovaV2HotReload") is { } hotReload)
+        {
+            hotReload.WorldReloaded += _xr.InvalidateElements;
+        }
 
         if (_options.LockMouseOnStart)
             SetMouseCaptured(true);
@@ -146,6 +168,58 @@ public sealed class NovaV2Runtime : IDisposable
     public bool IsDisposed => _disposed;
     public bool LockMouseOnStart { get; set; }
 
+    /// <summary>
+    /// XR rig and tracking service. Present by default; OpenXR only starts when
+    /// requested (<c>StartXR</c>, <c>--xr on</c>, a manifest <c>"Xr": true</c>,
+    /// or <see cref="EnableXR"/>).
+    /// </summary>
+    public NovaV2XRService? XR => _xr;
+
+    /// <summary>True while the viewport is rendering to the headset.</summary>
+    public bool IsXRActive => _xr?.IsAvailable == true;
+
+    /// <summary>
+    /// Enter XR during gameplay, in this process. Returns false when OpenXR
+    /// cannot start (no headset, no runtime, or the host passed
+    /// <c>EnableXR = false</c>); the game keeps rendering flat and nothing polls
+    /// in the background. Call it again later to retry.
+    /// </summary>
+    public bool EnableXR()
+    {
+        bool active = _xr?.Enable() == true;
+        SyncXRRenderState();
+        return active;
+    }
+
+    /// <summary>
+    /// Stop rendering to the headset. The OpenXR session stays up, so
+    /// <see cref="EnableXR"/> is immediate; the game continues flat.
+    /// </summary>
+    public void DisableXR()
+    {
+        _xr?.Disable();
+        SyncXRRenderState();
+    }
+
+    /// <summary>Flip XR on/off and return the new active state.</summary>
+    public bool ToggleXR()
+    {
+        bool active = _xr?.Toggle() == true;
+        SyncXRRenderState();
+        return active;
+    }
+
+    /// <summary>
+    /// Pushes the XR state into the renderer immediately, so a toggle from
+    /// gameplay applies to the frame that is already being built instead of
+    /// one frame later, then requests a capture.
+    /// </summary>
+    private void SyncXRRenderState()
+    {
+        _renderer.XREnabled = _xr?.IsAvailable == true;
+        ForceRender();
+    }
+
     /// <summary>Environment source. Replace to supply host-owned skyboxes or effects.</summary>
     public Func<GameRoot, RenderEnvironmentData> EnvironmentProvider { get; set; }
 
@@ -157,8 +231,9 @@ public sealed class NovaV2Runtime : IDisposable
     {
         ThrowIfDisposed();
 
+        // Input uses the state from the previous frame (tracking is not updated
+        // yet); the renderer is told after XR has had its turn this frame.
         bool xrAvailable = _xr?.IsAvailable == true;
-        _renderer.XREnabled = xrAvailable;
 
         var inputService = _root.Registry.Get<InputService>();
         if (inputService is not null)
@@ -171,6 +246,10 @@ public sealed class NovaV2Runtime : IDisposable
         // XR poses and controller events must land before the world ticks, so
         // gameplay reads this frame's tracking rather than last frame's.
         _xr?.Update();
+
+        // Update can activate XR (a retry succeeded) or drop back to flat (the
+        // runtime stopped); the renderer needs that before this frame builds.
+        _renderer.XREnabled = _xr?.IsAvailable == true;
 
         _root.V12Tick(deltaTime);
         Render(deltaTime);
@@ -196,11 +275,13 @@ public sealed class NovaV2Runtime : IDisposable
 
         var snapshot = _root.CaptureFrame();
 
-        _ui.Apply(_root.CaptureUI());
+        // Capture once: the model drives world-canvas layout, the laid-out
+        // PaperFrame drives the screen overlay.
+        var capturedUi = _root.CaptureUI();
+        _ui.Apply(capturedUi);
         var uiContext = new UiFrameContext(
+            capturedUi,
             _ui.LastFrame,
-            _uiTarget,
-            UiViewId,
             _viewportWidth,
             _viewportHeight);
 
@@ -213,6 +294,8 @@ public sealed class NovaV2Runtime : IDisposable
             return;
         }
 
+        // The frame names what to present; the engine owns the target's life.
+        var presentTarget = lease.Frame.PresentTarget;
         try
         {
             _renderer.Submit(lease);
@@ -223,6 +306,12 @@ public sealed class NovaV2Runtime : IDisposable
             lease.Release();
             throw;
         }
+
+        if (presentTarget is { } present && present != _presentedTarget)
+        {
+            _renderer.PresentRenderTarget(present);
+            _presentedTarget = present;
+        }
     }
 
     public void ForceRender() => _forceRender = true;
@@ -232,6 +321,15 @@ public sealed class NovaV2Runtime : IDisposable
         var inputService = _root.Registry.Get<InputService>();
         if (inputService is null)
             return;
+
+        if (DebugInput)
+        {
+            if (inputEvent is Godot.InputEventKey { Echo: false } key)
+                GD.Print($"[NovaV2.Input] key physical={key.PhysicalKeycode} " +
+                         $"keycode={key.Keycode} pressed={key.Pressed}");
+            else if (inputEvent is Godot.InputEventMouseButton button)
+                GD.Print($"[NovaV2.Input] mouse {button.ButtonIndex} pressed={button.Pressed}");
+        }
 
         switch (inputEvent)
         {
@@ -338,9 +436,14 @@ public sealed class NovaV2Runtime : IDisposable
         _presentation.WindowEvent -= OnWindowEvent;
         _mouseCapture.Shutdown();
         _ui.Dispose();
+        if (_root.Registry.Get<NovaV2HotReloadService>("NovaV2HotReload") is { } hotReload)
+        {
+            hotReload.Dispose();
+            _root.Registry.Unregister("NovaV2HotReload");
+        }
         _xr?.Dispose();
         _producer.Dispose();
-        _renderer.DestroyRenderTarget(_uiTarget);
+        _paperSource.Dispose();
 
         foreach (var skybox in _skyboxTextures.Values)
         {
@@ -362,7 +465,8 @@ public sealed class NovaV2Runtime : IDisposable
             _viewportHeight = Math.Max(1, windowEvent.Height);
             _producer.Resize(_viewportWidth, _viewportHeight);
             _ui.Resize(_viewportWidth, _viewportHeight);
-            _renderer.ResizeRenderTarget(_uiTarget, _viewportWidth, _viewportHeight);
+            // The producer resizes the UI target from the next UiFrameContext;
+            // the host no longer owns that target.
             _forceRender = true;
         }
     }
@@ -570,9 +674,14 @@ public sealed class NovaV2Runtime : IDisposable
                     component.SkyR,
                     component.SkyG,
                     component.SkyB),
-                Energy = 1f,
+                Energy = MathF.Max(0f, component.SkyEnergy),
                 SkyboxEnabled = hasSkybox,
                 Skybox = hasSkybox ? skybox : null,
+                // The contract carries a quaternion; the component exposes the
+                // one axis a panorama actually needs.
+                SkyboxRotation = System.Numerics.Quaternion.CreateFromAxisAngle(
+                    System.Numerics.Vector3.UnitY,
+                    component.SkyboxRotation * (MathF.PI / 180f)),
             },
         };
     }

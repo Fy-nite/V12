@@ -135,9 +135,21 @@ The repo has two test styles:
 
 Run the architecture tests before sending a change. If a boundary test fails, fix the reference or update the contract; do not add an exception without a documented reason.
 
+## Hot reload loop
+
+For a game project under `--game`, run NovaV2 with `--hot-reload` to compile C#
+and rebuild the world on save:
+
+```powershell
+.\scripts\run-host.ps1 -UseGame -HotReload -Xr off
+```
+
+This is a scene reload for local development; see `Docs/HOT_RELOAD_NOVAV2.md`
+for the collectible assembly, gamepak lifecycle, and current limits.
+
 ## Common pitfalls
 
 - Adding a project from two different paths creates two assembly identities. Reference the same path everywhere.
-- Prowl is currently transitive from `V12-Engine`. After the Paper split, every project that uses Prowl must reference `V12.Paper` or Prowl explicitly.
+- The Paper renderer/UI implementation lives in `V12.Paper`; backends that draw Paper frames or use world-canvas surfaces must reference `V12.Paper`. `V12-Engine` still references Prowl only for the Origami code-editor contract (`ICodeEditor`, `CodeLanguages`), which is tracked for removal.
 - Godot's `PluginLoadContext` requires the same assembly instance at runtime. Do not load a second copy via `Assembly.LoadFrom`.
 - `.uid` files are Godot artifacts. They are not needed by the .NET build.

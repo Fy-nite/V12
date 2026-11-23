@@ -207,6 +207,55 @@ Spawn a player:
 world.SpawnPlayer3D(new Vector3(0f, 1.5f, 0f));
 ```
 
+### Space and point gravity
+
+A planet is an element with a `GravitySourceComponent`. The component publishes
+`Mu` and `SurfaceRadius`; `GravityFieldSystem` collects every enabled source in
+the ticking worlds and hands the field to the physics backend.
+
+Known bodies can be built from a `PlanetProfile` instead of hand-entering the
+numbers. `PlanetProfile.EcoVRWorking` is the 2,400 km, 1g target from
+`EcoVR-Planet-Design-Doc.docx`; `GravitySourceComponent.FromProfile` copies it
+onto an element.
+
+```csharp
+planet.AddComponent(new V12.Gravity.Components.GravitySourceComponent
+{
+    Mu = 3.986004418e14f,          // Earth
+    SurfaceRadius = 6.371e6f,
+});
+```
+
+For a pure point-gravity scene, zero the uniform field once:
+
+```csharp
+gameRoot.PhysicsBackend!.Gravity = Vector3.Zero;
+```
+
+Vessels should be root elements with a `ColliderComponent`, a
+`RigidBodyComponent` and a `PhysicsBodyComponent`. A `LocomotionComponent`
+owns XZ velocity and would overwrite orbital motion; leave it off a vessel, or
+set `PhysicsBodyComponent.SyncLocomotionVelocity = false` so the physics
+velocity is preserved.
+
+Use `AddForce` for thrust (applied over the step) and `AddImpulse` for an
+instant change such as a jump or a decoupler kick. `BodyMass` can be changed on
+staging; the backend recomputes inertia from the collider shape.
+
+For time warp, propagate a `V12.Gravity.OrbitalState` on rails in double
+precision and only run local physics for the active vessel.
+
+A runnable NovaV2 example lives in `V12-Samples/SpaceFlight`: it builds a
+scaled planet, a dynamic ship on a circular orbit, a camera, and live orbital
+telemetry. Build it and launch the NovaV2 host.
+
+`V12-Samples/UiShowcase` shows the UI side: a screen-space HUD and a world-space
+canvas authored entirely in WorldML, with every widget kind, list data declared
+inline (tabs, table columns/rows, dropdown items), and widgets bound to named
+actions (`Action="pulse"`) that a script registers with `UiActions.Register`.
+Its README lists which components still need code and which behave as
+approximations in the Paper backend.
+
 Load a pak:
 
 ```csharp
@@ -299,10 +348,39 @@ Set the world's `EnvironmentComponent` to `BackgroundMode.Skybox` and point
 ```csharp
 environment.Mode = BackgroundMode.Skybox;
 environment.SkyboxPath = "textures/sky.png";   // or v12://..., res://...
+environment.SkyEnergy = 1f;                    // brighten a dim panorama
+environment.SkyboxRotation = 90f;              // yaw in degrees
 ```
 
 The host resolves and uploads the panorama once per path; a failed or empty path
-falls back to the solid sky colour.
+falls back to the solid sky colour. It is a 2D image, not a mesh: a GLB skybox
+(a sphere with the nebula baked on) has to be unpacked into its panorama first,
+because a mesh shell only works while it is between the camera and the far clip
+and drawn with both faces.
+
+`SkyEnergy` scales the panorama (and the solid sky colour) and
+`SkyboxRotation` rotates it around the world up axis, so the interesting part of
+the image can be lined up with the view a game opens on. Both are captured from
+the component every frame, so they are safe to animate.
+
+### Static 3D models
+
+Use `ModelInstance` when the file's node hierarchy and per-part materials
+should survive as elements, or `MeshAsset` for one flattened mesh:
+
+```csharp
+var desk = new Element("Desk");
+desk.SetPosition(3f, 0.575f, -3.6f);
+desk.SetRotation(0f, -28f, 0f);
+desk.AddComponent(new ScaleComponent(0.5f));
+desk.AddComponent(new ModelInstance("v12://samples/Desk.glb"));
+world.AddElement(desk);
+```
+
+Paths resolve through mounts, so `v12://` URIs work for gamepak and sample
+content alike. See [`MODEL_LOADING.md`](MODEL_LOADING.md) for hierarchy vs
+flattening, materials from the file, embedded textures, triplanar fallback and
+import conventions.
 
 ### Skinned and animated characters
 

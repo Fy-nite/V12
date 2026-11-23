@@ -19,7 +19,13 @@ public partial class NovaV2HostNode : Node3D
     [Export] public string GamepakDirectory { get; set; } = "gamepaks";
     [Export] public string ForceGamepak { get; set; } = "";
     [Export] public bool AutoStartFirstGamepak { get; set; } = true;
-    [Export] public bool EnableXR { get; set; }
+    /// <summary>Create the XR rig. On by default; it stays inert until XR is
+    /// requested, so one build runs flat or in VR.</summary>
+    [Export] public bool EnableXR { get; set; } = true;
+
+    /// <summary>Start OpenXR immediately. Same as <c>--xr on</c>; the game can
+    /// also enable XR later through <see cref="NovaV2Runtime.EnableXR"/>.</summary>
+    [Export] public bool StartXR { get; set; }
 
     private NovaV2Runtime? _runtime;
 
@@ -29,6 +35,16 @@ public partial class NovaV2HostNode : Node3D
     public override void _Ready()
     {
         SetProcessInput(true);
+
+        // Keyboard events only reach _Input when the game window is focused.
+        // Launches from a terminal/IDE otherwise leave focus on the console and
+        // make every keybind appear dead. Running as a game is not the editor,
+        // so pulling the window forward is the expected behavior here.
+        if (!Engine.IsEditorHint())
+        {
+            DisplayServer.WindowMoveToForeground();
+            GetWindow().GrabFocus();
+        }
 
         if (_runtime is not null)
             return;
@@ -50,20 +66,26 @@ public partial class NovaV2HostNode : Node3D
 
     public override void _EnterTree()
     {
-        // Flag the root viewport for XR as early as possible. Godot may boot
-        // OpenXR from `openxr/enabled` before _Ready runs, and a viewport that
-        // is not marked renders nothing ("No viewport was marked with use_xr").
-        bool xr = EnableXR;
-        if (CommandLineValue("--xr") is { } value)
-            xr = value is not "0" and not "false";
+        // `openxr/enabled` can initialise the module before _Ready runs. That
+        // is only the runtime being available; the viewport is flagged for XR
+        // here only when XR is actually requested now, so a normal launch keeps
+        // rendering flat even with a headset connected.
+        bool start = StartXR;
+        bool enabled = EnableXR;
 
-        if (!xr)
+        if ((CommandLineValue("--xr-mode") ?? CommandLineValue("--xr")) is { } value)
+        {
+            bool on = IsXrOn(value);
+            start = on;
+            enabled = on;
+        }
+
+        if (!enabled || !start)
             return;
 
-        // Only mark the viewport when OpenXR is already running (the project
-        // setting can boot it before _Ready). Otherwise the runtime's XR
-        // service marks it once Initialize() succeeds; flagging it earlier
-        // would leave a desktop run rendering nothing.
+        // Only mark the viewport when OpenXR is already running. Otherwise the
+        // XR service marks it once Initialize() succeeds; flagging a viewport
+        // for XR with no interface running renders nothing.
         var xrInterface = XRServer.FindInterface("OpenXR");
         if (xrInterface is null || !xrInterface.IsInitialized())
             return;
@@ -108,6 +130,7 @@ public partial class NovaV2HostNode : Node3D
             AutoStartFirstGamepak = AutoStartFirstGamepak,
             LockMouseOnStart = LockMouseOnStart,
             EnableXR = EnableXR,
+            StartXR = StartXR,
         };
 
         // Godot keeps everything after "--" out of GetCmdlineArgs, so user
@@ -115,11 +138,32 @@ public partial class NovaV2HostNode : Node3D
         options.PakPath ??= CommandLineValue("--pak");
         options.ForceGamepak ??= CommandLineValue("--gamepak");
 
-        if (CommandLineValue("--xr") is { } xr)
-            options.EnableXR = xr is not "0" and not "false";
+        // `--xr on` enables the rig and starts it; `--xr off` disables the rig
+        // entirely. Anything else only changes whether XR starts now, never
+        // whether the game can enter XR later.
+        // `--xr-mode` is the current desktop-test spelling; `--xr` remains for
+        // older launch scripts.
+        var xrMode = CommandLineValue("--xr-mode") ?? CommandLineValue("--xr");
+        if (xrMode is { } xr)
+        {
+            bool on = IsXrOn(xr);
+            options.EnableXR = on;
+            options.StartXR = on;
+        }
 
         return options;
     }
+
+    /// <summary>
+    /// True for a <c>--xr</c> value that should start XR. <c>0</c>, <c>false</c>
+    /// and <c>off</c> (any case) turn it off; <c>on</c>, <c>1</c> and <c>true</c>
+    /// turn it on; an absent value leaves the current default.
+    /// </summary>
+    public static bool IsXrOn(string? value)
+        => value is not null
+           && !value.Equals("0", StringComparison.OrdinalIgnoreCase)
+           && !value.Equals("false", StringComparison.OrdinalIgnoreCase)
+           && !value.Equals("off", StringComparison.OrdinalIgnoreCase);
 
     /// <summary>
     /// Reads the value following <paramref name="name"/> from the command line.

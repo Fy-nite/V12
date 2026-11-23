@@ -94,6 +94,15 @@ public sealed class PhysicsBodyModelTests
 
         body.AddForce(new Vector3(0f, 10f, 0f));
         Assert.Equal(new Vector3(0f, 10f, 0f), fake.LastForce);
+
+        body.AddImpulse(new Vector3(0f, 2f, 0f));
+        Assert.Equal(new Vector3(0f, 2f, 0f), fake.LastImpulse);
+
+        body.AddAngularImpulse(new Vector3(1f, 0f, 0f));
+        Assert.Equal(new Vector3(1f, 0f, 0f), fake.LastAngularImpulse);
+
+        body.BodyMass = 5f;
+        Assert.Equal(5f, fake.Mass);
     }
 
     [Fact]
@@ -117,11 +126,17 @@ public sealed class PhysicsBodyModelTests
         public bool IsCharacterController { get; set; }
         public bool IsOnFloor { get; set; }
         public bool LockRotation { get; set; }
+        public float Mass { get; set; } = 1f;
+        public float GravityScale { get; set; } = 1f;
         public Vector3 LastForce { get; private set; }
         public Vector3 LastTorque { get; private set; }
+        public Vector3 LastImpulse { get; private set; }
+        public Vector3 LastAngularImpulse { get; private set; }
 
         public void AddForce(Vector3 force) => LastForce = force;
         public void AddTorque(Vector3 torque) => LastTorque = torque;
+        public void AddImpulse(Vector3 impulse) => LastImpulse = impulse;
+        public void AddAngularImpulse(Vector3 impulse) => LastAngularImpulse = impulse;
         public void SetKinematic(bool kinematic) => IsDynamic = !kinematic;
     }
 }

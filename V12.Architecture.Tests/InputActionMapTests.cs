@@ -103,6 +103,94 @@ public sealed class InputActionMapTests
         Assert.Equal(0.5f, map.GetAxis("MoveX"));
     }
 
+    [Fact]
+    public void NameAxis_KeepsNegativeDirection()
+    {
+        var map = new InputActionMap();
+        map.BindAxis("MoveX", "xr_left_stick_x", "");
+
+        map.OnInputEvent(new InputEvent
+        {
+            Type = InputEventType.Axis,
+            Name = "xr_left_stick_x",
+            Value = -0.75f,
+        });
+        map.Update(0f);
+
+        Assert.Equal(-0.75f, map.GetAxis("MoveX"));
+    }
+
+    [Fact]
+    public void NameAxis_NegativeBindingMapsStickUpToForward()
+    {
+        var map = new InputActionMap();
+        map.BindAxis("MoveZ", "", "xr_left_stick_y");
+        map.AddAxis("MoveZ", InputKey.S, InputKey.W);
+
+        map.OnInputEvent(new InputEvent
+        {
+            Type = InputEventType.Axis,
+            Name = "xr_left_stick_y",
+            Value = 1f,
+        });
+        map.Update(0f);
+
+        // The stick reports +1 when pushed forward; the game's forward is -Z
+        // (same sign as W), so the negative binding must produce -1.
+        Assert.Equal(-1f, map.GetAxis("MoveZ"));
+
+        map.OnInputEvent(new InputEvent
+        {
+            Type = InputEventType.Axis,
+            Name = "xr_left_stick_y",
+            Value = -1f,
+        });
+        map.Update(0f);
+
+        Assert.Equal(1f, map.GetAxis("MoveZ"));
+    }
+
+    [Fact]
+    public void NameButton_QuickTapBetweenUpdatesLatchesBothEdges()
+    {
+        var map = new InputActionMap();
+        map.BindButton("Capture", "mouse_right");
+
+        // A quick click can arrive and release before the next fixed step.
+        map.OnInputEvent(new InputEvent { Type = InputEventType.ButtonDown, Name = "mouse_right" });
+        map.OnInputEvent(new InputEvent { Type = InputEventType.ButtonUp, Name = "mouse_right" });
+        map.Update(0f);
+
+        Assert.False(map.GetButton("Capture"));
+        Assert.True(map.GetButtonDown("Capture"));
+        Assert.True(map.GetButtonUp("Capture"));
+
+        map.Update(0f);
+
+        Assert.False(map.GetButtonDown("Capture"));
+        Assert.False(map.GetButtonUp("Capture"));
+    }
+
+    [Fact]
+    public void KeyButton_QuickTapBetweenUpdatesLatchesBothEdges()
+    {
+        var map = new InputActionMap();
+        map.BindButton("Jump", InputKey.Space);
+
+        map.OnInputEvent(Button(InputEventType.ButtonDown, InputKey.Space));
+        map.OnInputEvent(Button(InputEventType.ButtonUp, InputKey.Space));
+        map.Update(0f);
+
+        Assert.False(map.GetButton("Jump"));
+        Assert.True(map.GetButtonDown("Jump"));
+        Assert.True(map.GetButtonUp("Jump"));
+
+        map.Update(0f);
+
+        Assert.False(map.GetButtonDown("Jump"));
+        Assert.False(map.GetButtonUp("Jump"));
+    }
+
     private static InputEvent Button(InputEventType type, InputKey key) => new()
     {
         Type = type,

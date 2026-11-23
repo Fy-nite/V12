@@ -234,17 +234,29 @@ public sealed class NovaV2InputHandler
     /// Maps a Godot key event to an engine key. Physical keycode wins so a
     /// layout change cannot break movement bindings; modifier keys share one
     /// code in Godot and are split by <see cref="InputEventKey.Location"/>.
+    /// A few input paths (remote desktop, synthetic input) report a generic
+    /// physical code such as Pause while the logical keycode is correct, so
+    /// that case falls back to the logical code.
     /// </summary>
     public static InputKey ToInputKey(InputEventKey keyEvent)
     {
-        var key = keyEvent.PhysicalKeycode != Key.None
-            ? keyEvent.PhysicalKeycode
-            : keyEvent.Keycode;
+        bool right = keyEvent.Location == KeyLocation.Right;
 
+        var physical = keyEvent.PhysicalKeycode;
+        if (physical is Key.None or Key.Pause)
+            physical = Key.None;
+
+        var mapped = MapKey(physical, right);
+        if (mapped != InputKey.None)
+            return mapped;
+
+        return MapKey(keyEvent.Keycode, right);
+    }
+
+    private static InputKey MapKey(Key key, bool right)
+    {
         if (key == Key.None)
             return InputKey.None;
-
-        bool right = keyEvent.Location == KeyLocation.Right;
 
         switch (key)
         {

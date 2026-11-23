@@ -133,21 +133,37 @@ A backend that needs a native material builds it from the packet fields and cach
 
 ## UI
 
-`IUIRenderer.ApplyUI` receives a `UIFrame` keyed by `UINode.Id`.
+A renderer that targets `V12.Rendering.IRenderer` has nothing UI-specific to
+implement. UI arrives as ordinary draw items:
 
-- Reconcile create/update/destroy by id.
-- Do not walk the world to find widgets.
-- Do not read or write `ToggleComponent.IsOn`, `SliderComponent.Value`, or `ButtonComponent.OnClick`. Use the `UINode` callbacks and values.
+- the engine declares an orthographic UI view (`RenderViewIds.ScreenUi`) and
+  `PaperUiDrawBuilder` emits its meshes into it;
+- `RenderFrame.PresentTarget` names the surface to present; `null` means the
+  host's presentation surface;
+- `RenderFrameProducer.ScreenUiTargetPolicy` lets a host ask for the UI in an
+  engine-owned target instead (`UiTargetPolicy.OwnTarget`);
+- pointer, wheel, key and text input arrive through `InputService` like any
+  other input; layout, hit-testing and focus stay in the engine.
 
-For Paper, the correct shape is:
+World-space UI is even simpler: it arrives as ordinary scene meshes
+(`ViewId = 0`, the canvas's world id, scene layer, placed by `DrawItem.World`).
+There is no canvas texture, canvas view or UI quad to implement. Picking and
+focus are engine-side too: forward pointer/keys into `InputService` and the
+engine raycasts canvases, maps pixels and routes keys.
 
-```
-V12.Paper.ProwlPaperRenderer : IUIRenderer
-  Prowl/Quill builds a PaperFrame
-  backend uploads PaperFrame vertex/index/draw data
-```
+The host opts into a UI implementation by giving the frame producer an
+`IUiSource` (`V12.Paper.PaperUiSource` when using Paper). The renderer never
+sees that object: it only receives the resulting draw items.
 
-Godot's `GodotPaperCanvasRenderer` and MonoGame's `MonogamePaperFrameRenderer` are the reference implementations.
+Draw the view, draw the meshes, present the named surface, and stop there. Do
+not special-case fonts, rounded corners, clipping, canvas placement or widget
+state.
+
+The legacy packet contract (`V12.Core.Interfaces.Renderer.IRenderer`) still has
+the old shape: `IUIRenderer.ApplyUI(UIFrame)` plus a backend-specific
+`PaperFrame` renderer (`MonogamePaperFrameRenderer`, `RaylibPaperFrameRenderer`).
+That path is being retired as those backends port to `V12.Rendering.IRenderer`;
+do not grow it.
 
 ## Editor interaction
 

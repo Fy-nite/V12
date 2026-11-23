@@ -1,6 +1,8 @@
 using Godot;
 using V12.Rendering;
 using GodotEnvironment = Godot.Environment;
+using EngineViewportInfo = V12.Core.Rendering.ViewportInfo;
+using EngineViewportRegistry = V12.Core.Rendering.IViewportRegistry;
 
 namespace NovaV2.Rendering;
 
@@ -14,7 +16,7 @@ namespace NovaV2.Rendering;
 /// render targets, and a single surface per mesh. Skinning, instancing and
 /// sprite/text nodes are not implemented yet.
 /// </summary>
-public sealed class NovaV2Renderer : IRenderer, IRendererLifecycle
+public sealed class NovaV2Renderer : IRenderer, IRendererLifecycle, EngineViewportRegistry
 {
     private sealed class MeshRecord
     {
@@ -92,12 +94,18 @@ public sealed class NovaV2Renderer : IRenderer, IRendererLifecycle
     private readonly Dictionary<(long Id, int Index), ItemNode> _items = new();
     private readonly Dictionary<(long Id, StereoEye Eye), Camera3D> _cameras = new();
     private readonly Dictionary<long, Light3D> _lights = new();
+    private IReadOnlyList<EngineViewportInfo> _viewports = Array.Empty<EngineViewportInfo>();
     private EnvironmentData _currentEnvironment = EnvironmentData.Default;
 
     /// <summary>When true the renderer leaves the view to the XR headset camera
     /// and does not create snapshot cameras.</summary>
     public bool XREnabled { get; set; }
     private readonly Dictionary<(long Id, int Index), Material> _overrideMaterials = new();
+    private readonly Dictionary<Guid, uint> _worldBits = new();
+    private readonly Dictionary<long, uint> _viewBits = new();
+    private uint _nextWorldBit = 1u << 16;
+    private uint _nextViewBit = 1u << 8;
+    private const uint UserLayerMask = 0x000000FFu;
     private readonly CanvasLayer _presentLayer;
     private readonly Dictionary<uint, TextureRect> _presentedTargets = new();
     private readonly List<string> _diagnostics = new();
@@ -131,6 +139,9 @@ public sealed class NovaV2Renderer : IRenderer, IRendererLifecycle
         };
         _root.AddChild(_worldEnvironment);
     }
+
+    /// <summary>Per-frame view snapshots for editor tools and picking.</summary>
+    public IReadOnlyList<EngineViewportInfo> Viewports => _viewports;
 
     public RendererCapabilities Capabilities { get; } = new(
         RendererFeature.Shadows |
@@ -641,6 +652,48 @@ public sealed class NovaV2Renderer : IRenderer, IRendererLifecycle
         ApplyEnvironmentLocked(_currentEnvironment);
     }
 
+    private uint WorldBit(Guid worldId)
+    {
+        if (worldId == Guid.Empty)
+            return 1u << 16;
+
+        if (_worldBits.TryGetValue(worldId, out var bit))
+            return bit;
+
+        bit = _nextWorldBit;
+        _nextWorldBit <<= 1;
+        if (_nextWorldBit == 0)
+            _nextWorldBit = 1u << 16;
+
+        _worldBits[worldId] = bit;
+        return bit;
+    }
+
+    private uint ViewBit(long viewId)
+    {
+        if (viewId <= 0)
+            return 0;
+
+        if (_viewBits.TryGetValue(viewId, out var bit))
+            return bit;
+
+        bit = _nextViewBit;
+        _nextViewBit <<= 1;
+        if (_nextViewBit == 0 || _nextViewBit >= (1u << 16))
+            _nextViewBit = 1u << 8;
+
+        _viewBits[viewId] = bit;
+        return bit;
+    }
+
+    private uint ViewLayers(in RenderView view)
+        => WorldBit(view.WorldId) | (view.LayerMask & UserLayerMask) | ViewBit(view.Id);
+
+    private uint ItemLayers(Guid worldId, uint layerMask, long viewId = 0)
+        => viewId > 0
+            ? ViewBit(viewId)
+            : WorldBit(worldId) | (layerMask & UserLayerMask);
+
     private void ApplyViewsLocked(in RenderFrame frame, Dictionary<long, SubViewport> viewportTargets)
     {
         // In XR the headset camera owns the view; snapshot cameras would fight
@@ -651,10 +704,12 @@ public sealed class NovaV2Renderer : IRenderer, IRendererLifecycle
                 if (GodotObject.IsInstanceValid(camera))
                     camera.QueueFree();
             _cameras.Clear();
+            _viewports = Array.Empty<EngineViewportInfo>();
             return;
         }
 
         var active = new HashSet<(long, StereoEye)>();
+        var viewportInfos = new List<EngineViewportInfo>();
 
         foreach (var view in frame.Views.Span)
         {
@@ -691,9 +746,30 @@ public sealed class NovaV2Renderer : IRenderer, IRendererLifecycle
                 camera.KeepAspect = Camera3D.KeepAspectEnum.Height;
                 camera.Size = view.ProjectionMetadata.OrthoSize;
             }
-            camera.CullMask = view.LayerMask == 0 ? uint.MaxValue : view.LayerMask;
+            camera.CullMask = view.WorldId == Guid.Empty && view.Target is null
+                ? (view.LayerMask == 0 ? uint.MaxValue : view.LayerMask)
+                : ViewLayers(view);
             camera.Current = view.Target is null ? view.IsCurrentCamera : true;
+
+            if (view.Id > 0)
+            {
+                viewportInfos.Add(new EngineViewportInfo(
+                    view.Id,
+                    view.Viewport.X,
+                    view.Viewport.Y,
+                    view.Viewport.Width,
+                    view.Viewport.Height,
+                    true,
+                    view.View,
+                    view.Projection,
+                    view.WorldId,
+                    view.LayerMask,
+                    view.CameraElementId,
+                    view.Id));
+            }
         }
+
+        _viewports = viewportInfos;
 
         foreach (var key in _cameras.Keys.ToArray())
         {
@@ -825,10 +901,12 @@ public sealed class NovaV2Renderer : IRenderer, IRendererLifecycle
                     skinNode = foundSkin;
             }
 
+            bool uiItem = item.ViewId != 0 && item.WorldId == Guid.Empty;
+
             Node parent = _root;
             if (skinNode is not null)
                 parent = skinNode.Root;
-            else if (item.ViewportId != 0 && viewportTargets.TryGetValue(item.ViewportId, out var viewport))
+            else if (uiItem && viewportTargets.TryGetValue(item.ViewId, out var viewport))
                 parent = viewport;
 
             if (node.Node.GetParent() != parent)
@@ -840,7 +918,9 @@ public sealed class NovaV2Renderer : IRenderer, IRendererLifecycle
             node.Mesh = item.Mesh;
             node.Material = item.Material;
             node.Node.Mesh = mesh.Mesh;
-            node.Node.Layers = item.LayerMask == 0 ? uint.MaxValue : item.LayerMask;
+            node.Node.Layers = uiItem
+                ? (item.LayerMask == 0 ? uint.MaxValue : item.LayerMask)
+                : ItemLayers(item.WorldId, item.LayerMask, item.ViewId);
             node.Node.Visible = true;
             node.Node.CastShadow = material.Desc.CastShadows
                 ? GeometryInstance3D.ShadowCastingSetting.On
@@ -964,7 +1044,7 @@ public sealed class NovaV2Renderer : IRenderer, IRendererLifecycle
             }
 
             record.Node.GlobalTransform = GodotInterop.ToTransform(particle.World);
-            record.Node.Layers = particle.LayerMask == 0 ? uint.MaxValue : particle.LayerMask;
+            record.Node.Layers = ItemLayers(particle.WorldId, particle.LayerMask);
             record.Node.Amount = Math.Max(1, particle.Amount);
             record.Node.Lifetime = Math.Max(0.01f, particle.Lifetime);
             record.Node.OneShot = particle.OneShot;
@@ -1044,7 +1124,7 @@ public sealed class NovaV2Renderer : IRenderer, IRendererLifecycle
             node.ShadowBias = shadows.Bias;
             node.ShadowNormalBias = shadows.NormalBias;
             node.ShadowOpacity = shadows.Opacity;
-            node.LightCullMask = light.LayerMask == 0 ? uint.MaxValue : light.LayerMask;
+            node.LightCullMask = ItemLayers(light.WorldId, light.LayerMask);
 
             switch (node)
             {
@@ -1630,6 +1710,9 @@ public sealed class NovaV2Renderer : IRenderer, IRendererLifecycle
             if (view.Target is { } target)
                 RequireLocked(target.Value, ResourceKind.RenderTarget);
         }
+
+        if (frame.PresentTarget is { } present)
+            RequireLocked(present.Value, ResourceKind.RenderTarget);
 
         foreach (var item in frame.Items.Span)
         {

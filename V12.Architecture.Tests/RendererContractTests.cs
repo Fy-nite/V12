@@ -416,7 +416,7 @@ public sealed class RendererContractTests
     private static DrawItem Item(MeshHandle mesh, MaterialHandle material, int overridesIndex) => new()
     {
         ElementId = 1,
-        ViewportId = 1,
+        ViewId = 1,
         Mesh = mesh,
         Material = material,
         World = Matrix4x4.Identity,

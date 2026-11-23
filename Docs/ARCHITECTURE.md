@@ -6,7 +6,9 @@ V12 is split into a small renderer-agnostic engine, optional extension packages,
 
 | Repo | Assembly / package | Role |
 |---|---|---|
-| `V12-Engine` | `V12` / `Finite.V12` | World, ECS, components, rendering contracts, UI contracts, WorldML |
+| `V12-Engine` | `V12` / `Finite.V12` | World, ECS, components, rendering contracts, UI contracts, WorldML, physics contracts |
+| `V12.Physics` | `V12.Physics` / `Finite.V12.Physics` | Bepu 2 backend, shape/inertia/impulse extensions, fixed-step physics service |
+| `V12.Gravity` | `V12.Gravity` / `Finite.V12.Gravity` | Point-gravity fields, gravity source components, double-precision orbital mechanics |
 | `V12.Basic` | `V12.Basic` / `Finite.V12.Basic` | Gameplay components, systems, building helpers |
 | `V12.Paper` | `V12.Paper` / `Finite.V12.Paper` | Prowl Paper, Origami and Quill UI implementation (optional) |
 | `V12.Editor` | `V12.Editor` / `Finite.V12.Editor` | Editor interaction: viewport service, gizmo, inspector (optional) |
@@ -21,8 +23,10 @@ V12 is split into a small renderer-agnostic engine, optional extension packages,
 
 | Layer | May know about | Must not know about |
 |---|---|---|
-| `V12-Engine` | `System.*`, `Contract.Runtime`, its own contracts | Godot, MonoGame, Nova, Prowl, V12Studio |
-| `V12.Basic` | `V12-Engine` | Godot, MonoGame, Nova, V12Studio |
+| `V12-Engine` | `System.*`, `Contract.Runtime`, its own contracts | Godot, MonoGame, Nova, Prowl, V12Studio, BepuPhysics, `V12.Physics`, `V12.Gravity` |
+| `V12.Physics` | `V12-Engine`, BepuPhysics | Godot, MonoGame, Nova, Prowl, V12Studio, `V12.Basic` |
+| `V12.Gravity` | `V12-Engine` | BepuPhysics, `V12.Physics`, Godot, MonoGame, Nova, Prowl, V12Studio, `V12.Basic` |
+| `V12.Basic` | `V12-Engine`, `V12.Physics`, `V12.Gravity` | Godot, MonoGame, Nova, V12Studio |
 | `V12.Paper` | `V12-Engine`, Prowl | Godot, MonoGame, Nova, V12Studio |
 | `V12.Editor` | `V12-Engine` | Godot, MonoGame, Nova (backend specifics) |
 | `Nova` / `V12.Monogame` | `V12-Engine` packet contracts, backend SDK | Editor internals, `V12.Paper` internals |
@@ -104,6 +108,8 @@ The render thread never reads the world tree. Snapshot and packet synthesis is t
 | Change | Location |
 |---|---|
 | A new engine component | `V12-Engine/Components`, with `[ComponentEntry]` and `BuildInspector` if it should appear in editors |
+| A physics backend, shape, inertia or body extension | `V12.Physics` |
+| A gravity field, gravity source or orbital mechanic | `V12.Gravity` |
 | A new gameplay system | `V12.Basic/Systems` or game code |
 | A new UI widget model | `V12-Engine/Components/UI` plus a `UIFrame` mapping |
 | A new Paper widget | `V12.Paper` |

@@ -15,22 +15,26 @@ namespace NovaV2.Hosting;
 /// <see cref="XRHandComponent"/>), and forwards controller buttons and axes
 /// into <see cref="InputService"/> as <c>xr_&lt;side&gt;_*</c> events.
 ///
-/// The service is inert when OpenXR cannot initialise (desktop without a
-/// headset): the scene keeps rendering through its normal V12 camera and the
-/// service retries in the background, so plugging a headset in later still
-/// brings XR up.
+/// The rig exists from the first frame but stays inert until XR is requested
+/// (<c>--xr on</c>, a manifest <c>"Xr": true</c>, or
+/// <see cref="Enable"/>). Devices with no OpenXR runtime - an Android phone, a
+/// desktop with no headset - keep rendering flat, and a failed start is logged
+/// once instead of retried in the background. Nothing here reloads the
+/// process, so XR can be entered and left during gameplay.
 /// </summary>
 public sealed class NovaV2XRService : IDisposable
 {
     private const float Deadzone = 0.15f;
-    private const int RetryIntervalFrames = 60;
 
     private readonly Node3D _parent;
     private readonly GameRoot _root;
     private readonly InputService _input;
     private readonly string? _actionMapPath;
+    private readonly DisplayServer.VSyncMode? _defaultVsync;
 
     private OpenXRInterface? _interface;
+    private bool _requested;
+    private bool _initFailureLogged;
     private XROrigin3D? _origin;
     private XRCamera3D? _camera;
     private XRController3D? _leftController;
@@ -39,6 +43,7 @@ public sealed class NovaV2XRService : IDisposable
     private XRNode3D? _rightHandTracker;
 
     private IWorldElement? _player;
+    private IWorldElement? _lastLoggedPlayer;
     private IWorldElement? _rig;
     private IWorldElement? _head;
     private IWorldElement? _leftHand;
@@ -47,26 +52,85 @@ public sealed class NovaV2XRService : IDisposable
 
     private readonly Dictionary<string, bool> _prevButtons = new();
     private readonly Dictionary<string, float> _prevFloats = new();
-    private int _retryCounter;
+    private static readonly bool DebugInput =
+        System.Environment.GetEnvironmentVariable("V12_MP_DEBUG") == "1";
+    private Vector2 _lastDebugStick;
     private bool _disposed;
 
     public NovaV2XRService(
         Node3D parent,
         GameRoot root,
         InputService input,
-        string? actionMapPath = "res://openxr_action_map.tres")
+        string? actionMapPath = "res://openxr_action_map.tres",
+        bool start = false)
     {
         _parent = parent;
         _root = root;
         _input = input;
         _actionMapPath = actionMapPath;
+        _defaultVsync = DisplayServer.WindowGetVsyncMode();
 
         CreateNodes();
-        TryInitialize();
+
+        // The project enables the OpenXR module at startup because Vulkan needs
+        // the instance extensions before the scene loads. That only means the
+        // runtime is available; it is not a request to output to the headset.
+        // Starting is explicit so a phone with no runtime stays flat, and so a
+        // game can enter XR from gameplay without a relaunch.
+        if (start)
+            Enable();
     }
 
-    /// <summary>True once OpenXR has initialised and the viewport is in XR.</summary>
+    /// <summary>True while XR is rendering: OpenXR is running and the viewport
+    /// is outputting to the headset.</summary>
     public bool IsAvailable { get; private set; }
+
+    /// <summary>True when OpenXR itself is initialised, whether or not the
+    /// viewport is currently rendering to the headset.</summary>
+    public bool IsRuntimeReady => _interface?.IsInitialized() == true;
+
+    /// <summary>True while the app is asking for XR, including a pending retry.</summary>
+    public bool IsRequested => _requested;
+
+    /// <summary>
+    /// Starts XR now. Returns false when no OpenXR runtime is available, in
+    /// which case the app keeps rendering flat and nothing polls in the
+    /// background; call this again (after a headset is connected, from a menu,
+    /// or when the game regains focus) to retry.
+    /// </summary>
+    public bool Enable()
+    {
+        if (_disposed)
+            return false;
+
+        _requested = true;
+
+        if (!IsAvailable)
+            Activate("requested");
+
+        return IsAvailable;
+    }
+
+    /// <summary>
+    /// Stops rendering to the headset. The OpenXR session stays up, so enabling
+    /// again is immediate. Safe to call when XR is not active.
+    /// </summary>
+    public void Disable()
+    {
+        _requested = false;
+        Deactivate();
+    }
+
+    /// <summary>Flips XR on/off and returns the new active state.</summary>
+    public bool Toggle()
+    {
+        if (IsAvailable)
+            Disable();
+        else
+            Enable();
+
+        return IsAvailable;
+    }
 
     public XROrigin3D? Origin => _origin;
 
@@ -119,12 +183,9 @@ public sealed class NovaV2XRService : IDisposable
         };
         _origin.AddChild(_rightHandTracker);
 
-        // If Godot already booted OpenXR from `openxr/enabled`, mark the
-        // viewport now so the first frame has an XR target. Otherwise wait for
-        // Initialize() to succeed: flagging a viewport for XR with no XR
-        // interface running renders nothing.
-        if (_interface.IsInitialized())
-            MarkViewportForXR();
+        // Viewport marking is deliberately not done here: `openxr/enabled`
+        // initialising the module at startup must not put the game in XR.
+        // Activate() flags the viewport when XR is actually requested.
     }
 
     /// <summary>
@@ -134,6 +195,9 @@ public sealed class NovaV2XRService : IDisposable
     /// </summary>
     private void MarkViewportForXR()
     {
+        if (!GodotObject.IsInstanceValid(_parent))
+            return;
+
         var tree = _parent.GetTree();
         var root = tree?.Root;
         if (root is not null && !root.UseXR)
@@ -147,43 +211,112 @@ public sealed class NovaV2XRService : IDisposable
             viewport.UseXR = true;
     }
 
-    private void TryInitialize()
+    /// <summary>Returns the root viewport to flat rendering.</summary>
+    private void UnmarkViewportForXR()
     {
-        if (_interface is null || IsAvailable)
+        if (!GodotObject.IsInstanceValid(_parent))
             return;
+
+        var tree = _parent.GetTree();
+        var root = tree?.Root;
+        if (root is not null && root.UseXR)
+            root.UseXR = false;
+
+        var viewport = _parent.GetViewport();
+        if (viewport is not null && viewport != root && viewport.UseXR)
+            viewport.UseXR = false;
+    }
+
+    /// <summary>
+    /// Brings OpenXR up if it is not already running. The first interface
+    /// initialised becomes the primary interface, so the explicit assignment
+    /// the old reload path needed is not required.
+    /// </summary>
+    private bool EnsureRuntime()
+    {
+        if (_interface is null)
+            return false;
+
+        if (_interface.IsInitialized())
+            return true;
 
         try
         {
-            XRServer.PrimaryInterface = _interface;
-
-            // Initialize() returns false when the interface is already up (for
-            // example because `openxr/enabled` booted it), so check both.
             bool started = _interface.Initialize();
-            if (!started && !_interface.IsInitialized())
-            {
-                GD.Print("[NovaV2.XR] OpenXR not ready; retrying while the app runs.");
-                return;
-            }
+            if (started || _interface.IsInitialized())
+                return true;
 
-            IsAvailable = true;
-            _retryCounter = 0;
-
-            // XR interfaces do their own sync; a monitor refresh cap throttles
-            // the headset to the desktop refresh rate.
-            DisplayServer.WindowSetVsyncMode(DisplayServer.VSyncMode.Disabled);
-
-            MarkViewportForXR();
-
-            if (_camera is not null && GodotObject.IsInstanceValid(_camera))
-                _camera.Current = true;
-
-            _root.Registry.RegisterOrReplace("XRTrackingService", this);
-            GD.Print($"[NovaV2.XR] OpenXR initialized (already up: {!started}).");
+            LogInitFailureOnce("No OpenXR runtime is available; running flat. " +
+                               "Start with --xr on, or call EnableXR() once a headset is connected.");
         }
         catch (Exception ex)
         {
-            GD.PrintErr($"[NovaV2.XR] OpenXR init failed: {ex.Message}");
+            LogInitFailureOnce($"OpenXR init failed: {ex.Message} (running flat).");
         }
+
+        return false;
+    }
+
+    private void LogInitFailureOnce(string message)
+    {
+        if (_initFailureLogged)
+            return;
+
+        _initFailureLogged = true;
+        GD.Print($"[NovaV2.XR] {message}");
+    }
+
+    /// <summary>
+    /// Puts the game into XR: starts OpenXR when needed, flags the root
+    /// viewport, and lets the headset camera own the view. Idempotent.
+    /// </summary>
+    private void Activate(string reason)
+    {
+        if (IsAvailable || _disposed)
+            return;
+
+        if (!EnsureRuntime())
+            return;
+
+        IsAvailable = true;
+        _initFailureLogged = false;
+
+        // XR interfaces sync to the headset; a monitor refresh cap would
+        // throttle it to the desktop refresh rate. Restored on Deactivate.
+        DisplayServer.WindowSetVsyncMode(DisplayServer.VSyncMode.Disabled);
+
+        MarkViewportForXR();
+
+        if (_camera is not null && GodotObject.IsInstanceValid(_camera))
+            _camera.Current = true;
+
+        _root.Registry.RegisterOrReplace("XRTrackingService", this);
+        GD.Print($"[NovaV2.XR] Active ({reason}).");
+    }
+
+    /// <summary>
+    /// Returns the viewport to flat rendering. The OpenXR session is left
+    /// running so a later <see cref="Enable"/> is immediate.
+    /// </summary>
+    private void Deactivate()
+    {
+        if (!IsAvailable)
+            return;
+
+        IsAvailable = false;
+        _prevButtons.Clear();
+        _prevFloats.Clear();
+
+        if (_camera is not null && GodotObject.IsInstanceValid(_camera))
+            _camera.Current = false;
+
+        UnmarkViewportForXR();
+
+        if (_defaultVsync is { } vsync)
+            DisplayServer.WindowSetVsyncMode(vsync);
+
+        _root.Registry.Unregister("XRTrackingService");
+        GD.Print("[NovaV2.XR] Inactive.");
     }
 
     // ── Frame ───────────────────────────────────────────────────────────────
@@ -194,14 +327,28 @@ public sealed class NovaV2XRService : IDisposable
         if (_disposed)
             return;
 
-        if (!IsAvailable)
+        // A headset runtime can stop under us (app paused, session lost).
+        // Drop back to flat; the request stays recorded, so the next Enable()
+        // can start it again.
+        if (IsAvailable && _interface is not null && !_interface.IsInitialized())
         {
-            if (_interface is not null && ++_retryCounter % RetryIntervalFrames == 0)
-                TryInitialize();
-            return;
+            GD.Print("[NovaV2.XR] OpenXR runtime stopped; falling back to flat rendering.");
+            Deactivate();
         }
 
-        if (++_cacheTimer > 60 || _player is null)
+        // No background retry on purpose: every Initialize() call spins up the
+        // OpenXR loader, and a device with no runtime (an Android phone, a
+        // desktop with no headset) would log a failure every second. The host
+        // or game calls Enable() again when it has a reason to try.
+        if (!IsAvailable)
+            return;
+
+        // Re-cache periodically, and immediately when the rig is missing so a
+        // snapshot replacement or a late-loaded Player recovers next frame.
+        if (++_cacheTimer > 60 ||
+            _player is null ||
+            (_rig is null && _cacheTimer > 10) ||
+            (_head is null && _cacheTimer > 10))
             CacheElements();
 
         SyncOrigin();
@@ -229,11 +376,43 @@ public sealed class NovaV2XRService : IDisposable
 
     private static bool Valid(Node? node) => node is not null && GodotObject.IsInstanceValid(node);
 
+    /// <summary>
+    /// Drops the cached player/head/hand elements so the next frame resolves
+    /// them from the current world tree. Called after a hot reload replaces the
+    /// scene.
+    /// </summary>
+    public void InvalidateElements()
+    {
+        _player = null;
+        _cacheTimer = 0;
+    }
+
     private void CacheElements()
     {
         _cacheTimer = 0;
-        _player = _root.FindElement(e => e.Name == "Player");
+        // A client world is Remote, so it is not in ActiveWorlds. Search the
+        // focused world first, then every hydrated session; otherwise VR
+        // tracking stops after the first cache refresh once the client joins a
+        // networked world.
+        _player = _root.SelectedWorld is { } focused
+            ? _root.FindElement(focused, e => e.Name == "Player")
+            : null;
+        _player ??= _root.FindElementInLoadedWorlds(e => e.Name == "Player");
         _rig = _head = _leftHand = _rightHand = null;
+
+        // Log only transitions: this is the state that used to flip to null
+        // after a client world became Remote, silently stopping pose writes.
+        if (!ReferenceEquals(_player, _lastLoggedPlayer))
+        {
+            _lastLoggedPlayer = _player;
+            if (_player is null)
+                GameRoot.Log?.Warning(
+                    "[NovaV2.XR] Local Player not found; head/hand pose mirroring is paused.");
+            else
+                GameRoot.Log?.Information(
+                    "[NovaV2.XR] Local Player resolved (name '{Name}', id {Id}).",
+                    _player.Name, _player.Id);
+        }
 
         if (_player is null)
             return;
@@ -363,6 +542,14 @@ public sealed class NovaV2XRService : IDisposable
         float x = Math.Abs(stick.X) < Deadzone ? 0f : stick.X;
         float y = Math.Abs(stick.Y) < Deadzone ? 0f : stick.Y;
 
+        if (DebugInput && side == "left" &&
+            (stick - _lastDebugStick).LengthSquared() > 0.0025f)
+        {
+            _lastDebugStick = stick;
+            GD.Print($"[NovaV2.XR] left stick raw=({stick.X:F2}, {stick.Y:F2}) " +
+                     $"applied=({x:F2}, {y:F2})");
+        }
+
         SendAxis($"xr_{side}_stick_x", x);
         SendAxis($"xr_{side}_stick_y", y);
     }
@@ -383,7 +570,11 @@ public sealed class NovaV2XRService : IDisposable
             return;
         _disposed = true;
 
-        if (_interface is not null && IsAvailable)
+        // Leave XR output first: uninitialising an interface the viewport is
+        // still pointed at is the order that trips Godot's renderer.
+        Deactivate();
+
+        if (_interface is not null && _interface.IsInitialized())
         {
             try { _interface.Uninitialize(); } catch { /* shutting down */ }
         }

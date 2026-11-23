@@ -1,0 +1,73 @@
+<?xml version="1.0" encoding="utf-8"?>
+<World name="MultiplayerDemo">
+	<Element name="Sun">
+		<LocalTransform>
+			<Position>0,8,4</Position>
+			<Rotation>-42,-28,0</Rotation>
+		</LocalTransform>
+		<Component type="GenericLightComponent" ColorR="1" ColorG="0.96" ColorB="0.9" Energy="1.2" Type="Directional" Range="100" Angle="45" SpotSoftness="0.5" ShadowEnabled="True" />
+		<Component type="EnvironmentComponent" Mode="SolidColor" SkyR="0.10" SkyG="0.12" SkyB="0.16" AmbientR="0.28" AmbientG="0.30" AmbientB="0.36" AmbientEnergy="1" ShadowsEnabled="True" ShadowDistance="40" ShadowBias="2" ShadowNormalBias="1" ShadowOpacity="1" />
+	</Element>
+
+	<Element name="Ground">
+		<LocalTransform>
+			<Position>0,-0.1,0</Position>
+		</LocalTransform>
+		<Component type="MeshComponent" Shape="Box" Width="16" Height="0.2" Depth="16" />
+		<Component type="MeshRenderer" MeshTargetName="Mesh" />
+		<Component type="MaterialComponent" R="0.19" G="0.20" B="0.24" A="1" Roughness="0.95" />
+	</Element>
+
+	<!-- Host-owned: every client receives this cube and its angle. -->
+	<Element name="SharedCube">
+		<LocalTransform>
+			<Position>0,1.2,-1</Position>
+		</LocalTransform>
+		<Component type="MeshComponent" Shape="Box" Width="0.8" Height="0.8" Depth="0.8" />
+		<Component type="MeshRenderer" MeshTargetName="Mesh" />
+		<Component type="MaterialComponent" R="0.92" G="0.55" B="0.18" A="1" Metallic="0.15" Roughness="0.45" />
+		<Component type="MultiplayerCubeComponent" />
+	</Element>
+
+	<!--
+		Local-only player rig. NonPersistentComponent keeps this subtree out of
+		the host snapshot, so each peer keeps its own camera, head and hands.
+	-->
+	<Element name="Player">
+		<LocalTransform>
+			<Position>0,0,4</Position>
+		</LocalTransform>
+		<Component type="NonPersistentComponent" />
+		<Component type="MultiplayerPlayerController" />
+		<Component type="MultiplayerBootstrap" />
+
+		<Element name="DesktopCamera">
+			<LocalTransform>
+				<Position>0,1.55,0</Position>
+			</LocalTransform>
+			<Component type="CameraComponent" Projection="Perspective" Fov="65" NearClip="0.05" FarClip="200" IsCurrent="True" />
+		</Element>
+
+		<Element name="XRRig">
+			<Component type="XRRootComponent" />
+
+			<Element name="Head">
+				<Component type="XRHeadComponent" />
+			</Element>
+
+			<Element name="LeftHand">
+				<Component type="XRHandComponent" Side="Left" />
+				<Component type="MeshComponent" Shape="Box" Width="0.07" Height="0.07" Depth="0.13" />
+				<Component type="MeshRenderer" MeshTargetName="Mesh" />
+				<Component type="MaterialComponent" R="0.30" G="0.62" B="0.95" A="1" Metallic="0.2" Roughness="0.4" />
+			</Element>
+
+			<Element name="RightHand">
+				<Component type="XRHandComponent" Side="Right" />
+				<Component type="MeshComponent" Shape="Box" Width="0.07" Height="0.07" Depth="0.13" />
+				<Component type="MeshRenderer" MeshTargetName="Mesh" />
+				<Component type="MaterialComponent" R="0.30" G="0.62" B="0.95" A="1" Metallic="0.2" Roughness="0.4" />
+			</Element>
+		</Element>
+	</Element>
+</World>

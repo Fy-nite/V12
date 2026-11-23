@@ -14,6 +14,7 @@
     <ProjectReference Include="$(V12SkeletalProject)" />
     <ProjectReference Include="$(V12AudioOwnAudioProject)" />
     <ProjectReference Include="$(V12BasicProject)" />
+    <ProjectReference Include="$(V12BindingsProject)" />
     <ProjectReference Include="$(V12PaperProject)" />
     <ProjectReference Include="$(V12PakProject)" />
   </ItemGroup>

@@ -92,18 +92,49 @@ the game-view router.
   analytically (`TransformGizmo.TryHitHandles`, fat invisible shapes — never
   the visual mesh) before world picking, and world picking skips handle parts.
 
-## Viewports
+## Views and viewports
 
-- A viewport is a camera rendering into a texture. The renderer creates one
-  render target per viewport element id, routes `ViewportId` renderables into
-  it, and publishes the rect and camera matrices through `IViewportRegistry`.
-- Meshes carry a viewport id; groups render per viewport (0 = main screen).
-  Hierarchy never crosses a viewport boundary.
+- A `RenderViewComponent` defines a view: the world it renders, its camera,
+  layer mask, clear mode and target size policy.
+- A `ViewportComponent` is only the UI surface. It displays a view id and owns
+  the screen rectangle. Put both components on one element (`ViewId = 0`), or
+  point the surface at a view on another element (`ViewportId`).
+- `FrameSnapshot.Views` carries one `RenderViewSnapshot` per active view.
+  Scene content is captured once per world with `WorldId` and `LayerMask`; it
+  is not owned by a viewport.
+- `RenderView` carries `Id`, `ViewportId`, `WorldId`, `CameraElementId`,
+  `Viewport` (rect), `Target`, `LayerMask`, `Clear` and `Priority`. The
+  producer creates one target per view and computes projection from the view
+  rect aspect, not the window aspect.
+- `DrawItem` carries `WorldId`, `LayerMask` and an optional `ViewId`
+  restriction. Normal scene items use `ViewId = 0` and render in every view
+  whose world and layer match. UI items use their UI view id.
+- The same world can render in several views with different cameras. World
+  isolation and layers are renderer policy; NovaV2 maps world ids into
+  reserved layer bits.
 - The renderer does not pick, orbit, or draw gizmos. `V12.Editor` builds a ray
-  from the published camera, calls `SceneQuery`, and turns the hit into a
-  selection or gizmo drag.
+  from the published camera and calls `SceneQuery` with the view's world and
+  layer mask.
 - There is no overlay draw path. Editor visuals are transient meshes through
   the normal pipeline (unlit, no-depth).
+- The screen-space UI is also just a view. The engine declares it
+  (`RenderViewIds.ScreenUi`, orthographic, `RenderLayers.Ui`, no camera) and
+  emits its meshes as ordinary `DrawItem`s. `UiTargetPolicy` decides whether the
+  view draws into the presentation surface or into an engine-owned target; that
+  target, when used, is named by `RenderFrame.PresentTarget`. Hosts never
+  create, size, name or composite UI targets themselves.
+- World-space UI needs no special handling at all. `FrameSnapshot.Canvases`
+  carries canvas placement, and the producer emits each canvas as ordinary
+  scene meshes: `ViewId = 0`, the canvas's `WorldId`, the scene layer, and
+  `DrawItem.World` placing the mesh in the world. Draw them like any other
+  mesh; there is no UI quad, canvas texture or canvas view to implement.
+- UI hit-testing is never a renderer concern. Pointer, wheel, key and text
+  input are ordinary `InputService` events; the engine raycasts canvases
+  (`WorldUiPicking`), maps hits to canvas pixels, feeds the surfaces and owns
+  focus (`WorldUiInput`).
+- The UI implementation is host-supplied through `IUiSource`
+  (`V12.Paper.PaperUiSource` for Paper). It lives outside the engine and outside
+  every renderer; renderers only ever receive its draw items.
 
 ## Implementing a renderer
 
@@ -112,7 +143,8 @@ the game-view router.
 3. Mirror the hierarchy from `Nodes` (`ElementId`, `ParentId`, `Local`/`World`).
 4. Build materials from `MeshDraw` fields, not from `MaterialComponent`.
 5. Implement `IUIRenderer.ApplyUI(UIFrame)` if the renderer draws UI.
-6. Implement `IViewportRegistry` (required): viewport rects and camera matrices for tools and the editor.
+6. Implement `IViewportRegistry` (required): view id, rect, camera matrices,
+   world id and layer mask for tools and the editor.
 7. Keep packets immutable after capture and apply them on the render thread.
 8. Never walk the world tree from the render thread.
 

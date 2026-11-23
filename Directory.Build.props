@@ -38,6 +38,8 @@
     <V12AudioOwnAudioProject>$(V12MonorepoRoot)V12.Audio.OwnAudio/V12.Audio.OwnAudio.csproj</V12AudioOwnAudioProject>
     <V12BasicProject>$(V12MonorepoRoot)V12.Basic/V12.Basic.csproj</V12BasicProject>
     <V12BasicRoot>$(V12MonorepoRoot)V12.Basic</V12BasicRoot>
+    <V12PhysicsProject>$(V12MonorepoRoot)V12.Physics/V12.Physics.csproj</V12PhysicsProject>
+    <V12GravityProject>$(V12MonorepoRoot)V12.Gravity/V12.Gravity.csproj</V12GravityProject>
     <V12SkeletalProject>$(V12MonorepoRoot)V12.Skeletal/V12.Skeletal.csproj</V12SkeletalProject>
     <V12PakProject>$(V12MonorepoRoot)V12.Pak/V12.Pak.csproj</V12PakProject>
     <V12PaperProject>$(V12MonorepoRoot)V12.Paper/V12.Paper.csproj</V12PaperProject>

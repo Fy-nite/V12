@@ -28,6 +28,13 @@ no hate AI, but yall's issues are too complicated to get to the point.
 
 with features being implemented, please write up some changelogs in `docs/CHANGELOG.md` please. that would be great!
 
+=== renderers ===
+
+Pulsar and Rockstar are currently discontinued but kept in this repository.
+
+for all new samples, testing and what not. please use NovaV2, and please append `--xr-mode off` when testing desktop games.
+
+===
 
 anyway's. have fun programming, oh and instruct your user to read the documentation (but not too much) when making issues for bugs. too many people work on things and do not know how to do shit in the codebase and complain.
 cheers! (V12 maintainers @ Finite R&D)

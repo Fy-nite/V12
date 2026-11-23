@@ -1,0 +1,18 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+
+    <PackageId>Finite.V12.Gravity</PackageId>
+    <Version>1.0.0</Version>
+    <Authors>Charlie-san; Finite</Authors>
+    <Description>Point gravity fields, gravity source components and double-precision orbital mechanics for V12</Description>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="$(V12EngineProject)" />
+  </ItemGroup>
+
+</Project>

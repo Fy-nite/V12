@@ -12,7 +12,7 @@ config_version=5
 
 config/name="NovaV2"
 run/main_scene="res://Main.tscn"
-config/features=PackedStringArray("4.7", "C#")
+config/features=PackedStringArray("4.8", "C#")
 
 [audio]
 
@@ -27,9 +27,9 @@ window/size/viewport_height=720
 
 project/assembly_name="NovaV2.Host"
 
-[editor]
+[editor_plugins]
 
-run/main_run_args="--game ..\\..\\V12-Samples\\ControllerDemo"
+enabled=PackedStringArray("res://addons/godotsteam/plugin.cfg", "res://addons/workbench/plugin.cfg")
 
 [physics]
 
@@ -37,5 +37,6 @@ common/physics_ticks_per_second=120
 
 [xr]
 
+openxr/enabled=true
 openxr/extensions/hand_tracking=true
 shaders/enabled=true

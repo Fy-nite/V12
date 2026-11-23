@@ -97,6 +97,9 @@ public sealed class NullRenderer : IRenderer, IRendererLifecycle
                     RequireLocked(target.Value, ResourceKind.RenderTarget);
             }
 
+            if (f.PresentTarget is { } present)
+                RequireLocked(present.Value, ResourceKind.RenderTarget);
+
             foreach (var item in f.Items.Span)
             {
                 RequireLocked(item.Mesh.Value, ResourceKind.Mesh);

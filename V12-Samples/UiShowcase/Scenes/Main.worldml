@@ -1,0 +1,232 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  V12 UI showcase.
+
+  Every widget in this file is authored in WorldML; the only C# is
+  Scripts/UiShowcaseController.cs, which fills list-based widgets (tabs, table,
+  dropdown) and wires the callbacks. Component values can be edited here and
+  picked up with hot reload.
+-->
+<World name="UI Showcase">
+	<Element name="Sun">
+		<Component type="TransformComponent" x="0" y="8" z="4" rotationX="-38" rotationY="-40" />
+		<Component type="GenericLightComponent" ColorR="1" ColorG="0.94" ColorB="0.84" Energy="1.5" Type="Directional" Range="60" ShadowEnabled="True" />
+	</Element>
+	<Element name="Environment">
+		<Component type="EnvironmentComponent" Mode="SolidColor" SkyR="0.12" SkyG="0.11" SkyB="0.1" AmbientR="0.11" AmbientG="0.1" AmbientB="0.09" AmbientEnergy="1.2" />
+	</Element>
+	<Element name="Ground">
+		<Component type="TransformComponent" x="0" y="-0.1" z="0" />
+		<Component type="MeshComponent" Shape="Box" Width="30" Height="0.2" Depth="30" />
+		<Component type="MeshRenderer" MeshTargetName="Mesh" />
+		<Component type="MaterialComponent" R="0.14" G="0.13" B="0.12" A="1" Roughness="0.92" />
+	</Element>
+	<Element name="Pedestal">
+		<Component type="TransformComponent" x="1.7" y="0.5" z="0" />
+		<Component type="MeshComponent" Shape="Box" Width="1.6" Height="1" Depth="1.6" />
+		<Component type="MeshRenderer" MeshTargetName="Mesh" />
+		<Component type="MaterialComponent" R="0.28" G="0.25" B="0.22" A="1" Roughness="0.7" />
+	</Element>
+	<Element name="Spinner">
+		<Component type="TransformComponent" x="1.7" y="1.55" z="0" />
+		<Component type="MeshComponent" Shape="Box" Width="0.9" Height="0.9" Depth="0.9" />
+		<Component type="MeshRenderer" MeshTargetName="Mesh" />
+		<Component type="MaterialComponent" R="0.82" G="0.58" B="0.26" A="1" Roughness="0.5" />
+	</Element>
+	<Element name="ViewCamera">
+		<Component type="TransformComponent" x="-1.2" y="2.4" z="6.5" rotationX="-12" rotationY="8" />
+		<Component type="CameraComponent" Projection="Perspective" Fov="55" NearClip="0.05" FarClip="500" IsCurrent="True" />
+	</Element>
+
+	<!-- Fills list widgets and wires callbacks; see Scripts/UiShowcaseController.cs -->
+	<Element name="Showcase">
+		<Component type="UiShowcaseController" />
+	</Element>
+
+	<!-- ── Screen-space HUD ─────────────────────────────────────────────── -->
+	<Element name="Hud">
+		<Component type="CanvasComponent" ScreenSpace="true" AnchorX="0" AnchorY="0" />
+		<!-- Rect hugs its content, so the card grows with the layout. -->
+		<Element name="HudCard">
+			<Component type="RectComponent" Width="372" Height="452" BackgroundColor="#060504f2" CornerRadius="12" />
+			<Element name="HudRoot">
+				<Component type="VLayoutComponent" Spacing="9" Padding="20" />
+
+			<Element name="Title">
+				<Component type="LabelComponent" Text="V12 UI Showcase" FontSize="28" />
+				<Component type="UIStyleComponent" Flat="true" StyleHint="title" />
+			</Element>
+			<Element name="Subtitle">
+				<Component type="LabelComponent" Text="Authored in Scenes/Main.worldml · edit and save with --hot-reload to swap it live" />
+				<Component type="UIStyleComponent" Flat="true" StyleHint="muted" />
+			</Element>
+
+			<Element name="RuleTop">
+				<Component type="SeparatorComponent" />
+			</Element>
+
+			<Element name="ButtonRow">
+				<Component type="HLayoutComponent" Spacing="8" />
+				<Element name="PulseButton">
+					<Component type="V12.Components.UI.ButtonComponent" Label="Pulse" Action="pulse" />
+					<Component type="LayoutElementComponent" PreferredWidth="104" PreferredHeight="32" />
+				</Element>
+				<Element name="ResetButton">
+					<Component type="V12.Components.UI.ButtonComponent" Label="Reset" Action="reset" />
+					<Component type="LayoutElementComponent" PreferredWidth="104" PreferredHeight="32" />
+				</Element>
+				<Element name="Status">
+					<Component type="LabelComponent" Text="pulses 0" />
+					<Component type="UIStyleComponent" Flat="true" StyleHint="muted" />
+				</Element>
+			</Element>
+
+			<Element name="ToggleRow">
+				<Component type="HLayoutComponent" Spacing="8" />
+				<Element name="SpinToggle">
+					<Component type="ToggleComponent" Label="Spin" IsOn="true" Action="spin" />
+				</Element>
+				<Element name="GridCheck">
+					<Component type="CheckboxComponent" Label="Grid" Checked="false" Action="grid" />
+				</Element>
+			</Element>
+
+			<Element name="PowerSlider">
+				<Component type="SliderComponent" Label="power" Min="0" Max="1" Value="0.4" Step="0.05" Action="power" />
+				<Component type="LayoutElementComponent" PreferredWidth="220" />
+			</Element>
+
+			<Element name="PowerBar">
+				<Component type="V12.Components.UI.ProgressBarComponent" Value="0.4" />
+				<Component type="LayoutElementComponent" PreferredWidth="220" PreferredHeight="10" />
+			</Element>
+
+			<Element name="NameInput">
+				<Component type="TextInputComponent" Placeholder="player name" />
+				<Component type="LayoutElementComponent" PreferredWidth="220" />
+			</Element>
+
+			<Element name="RuleMid">
+				<Component type="SeparatorComponent" />
+			</Element>
+
+			<!-- Tabs: the strip titles and the page bodies live in C#; the
+			     structure (Tabs + TabPage children) is authored here. -->
+			<Element name="Tabs">
+				<Component type="TabsComponent" Tabs="Controls,Data,About" SelectedIndex="0" Pills="true" Action="tab" />
+				<Element name="PageControls">
+					<Component type="TabPageComponent" Index="0" Title="Controls" />
+					<Element name="PageControlsBody">
+						<Component type="VLayoutComponent" Spacing="6" Padding="6" />
+						<Element name="Hint1">
+							<Component type="LabelComponent" Text="Labels, buttons, toggles, sliders and progress bars are plain components." />
+							<Component type="UIStyleComponent" Flat="true" StyleHint="muted" />
+						</Element>
+						<Element name="Hint2">
+							<Component type="LabelComponent" Text="The controller wires OnClick / OnToggled; nothing is hard-coded in the renderer." />
+							<Component type="UIStyleComponent" Flat="true" StyleHint="muted" />
+						</Element>
+						<Element name="LoadingSpinner">
+							<Component type="SpinnerComponent" Size="22" />
+						</Element>
+					</Element>
+				</Element>
+				<Element name="PageData">
+					<Component type="TabPageComponent" Index="1" Title="Data" />
+					<Element name="Table">
+						<Component type="V12.Components.UI.TableComponent" RowHeight="24" ScrollWidth="360" ScrollHeight="150" Bordered="true" Action="row">
+							<Columns>
+								<Item Header="Signal" Flex="2" />
+								<Item Header="Live" Flex="1" />
+							</Columns>
+							<Rows>
+								<Item>
+									<Cells>
+										<Item>Pulse count</Item>
+										<Item>0</Item>
+									</Cells>
+								</Item>
+								<Item>
+									<Cells>
+										<Item>Power</Item>
+										<Item>0.40</Item>
+									</Cells>
+								</Item>
+								<Item>
+									<Cells>
+										<Item>Spin</Item>
+										<Item>on</Item>
+									</Cells>
+								</Item>
+							</Rows>
+						</Component>
+					</Element>
+					<Element name="Choice">
+						<Component type="DropdownComponent" Items="Amber,Bone,Ember,Linen" Placeholder="pick one" Searchable="false" Width="220" Action="pick" />
+					</Element>
+				</Element>
+				<Element name="PageAbout">
+					<Component type="TabPageComponent" Index="2" Title="About" />
+					<Element name="AboutBody">
+						<Component type="VLayoutComponent" Spacing="6" Padding="6" />
+						<Element name="About1">
+							<Component type="LabelComponent" Text="Screen UI is a Paper frame; world UI is the same meshes placed in the scene." />
+							<Component type="UIStyleComponent" Flat="true" StyleHint="muted" />
+						</Element>
+						<Element name="About2">
+							<Component type="LabelComponent" Text="Rendering, picking and focus all run engine-side. The renderer only draws meshes." />
+							<Component type="UIStyleComponent" Flat="true" StyleHint="muted" />
+						</Element>
+					</Element>
+				</Element>
+			</Element>
+
+			<Element name="RuleBottom">
+				<Component type="SeparatorComponent" />
+			</Element>
+
+			<Element name="Footer">
+				<Component type="LabelComponent" Text="Save this file while running with hot reload to swap the world live." />
+				<Component type="UIStyleComponent" Flat="true" StyleHint="muted" />
+			</Element>
+			</Element>
+		</Element>
+	</Element>
+
+	<!-- ── World-space canvas ───────────────────────────────────────────── -->
+	<Element name="Panel">
+		<Component type="TransformComponent" x="-2.9" y="2.05" z="0.4" rotationY="34" />
+		<Component type="CanvasComponent" ScreenSpace="false" Width="360" Height="388" Priority="2" />
+		<Element name="PanelSurface">
+			<Component type="RectComponent" Width="360" Height="388" BackgroundColor="#060504f2" CornerRadius="10" />
+			<Element name="PanelRoot">
+				<Component type="VLayoutComponent" Spacing="6" Padding="10" />
+			<Element name="PanelTitle">
+				<Component type="LabelComponent" Text="World-space canvas" FontSize="16" />
+				<Component type="UIStyleComponent" Flat="true" StyleHint="title" />
+			</Element>
+			<Element name="PanelHint">
+				<Component type="LabelComponent" Text="Same widgets, placed in the scene" />
+				<Component type="UIStyleComponent" Flat="true" StyleHint="muted" />
+			</Element>
+			<Element name="KnockButton">
+				<Component type="V12.Components.UI.ButtonComponent" Label="Knock" Action="knock" />
+				<Component type="LayoutElementComponent" PreferredWidth="96" PreferredHeight="30" />
+			</Element>
+			<Element name="PanelStatus">
+				<Component type="LabelComponent" Text="knocks 0" />
+				<Component type="UIStyleComponent" Flat="true" StyleHint="muted" />
+			</Element>
+			<Element name="PanelRule">
+				<Component type="SeparatorComponent" />
+			</Element>
+			<!-- Origami property grid over the component on the same element.
+			     Public fields are reflected and edited live. -->
+			<Element name="Gauge">
+				<Component type="PropertyGridComponent" ShowHeader="true" ExpandByDefault="true" />
+				<Component type="UiShowcaseGauge" />
+			</Element>
+			</Element>
+		</Element>
+	</Element>
+</World>

@@ -93,6 +93,9 @@ public sealed class RenderFrameBuilder
     public float Time { get; set; }
     public float DeltaTime { get; set; }
 
+    /// <summary>Null presents the host surface (window); non-null presents an engine-owned target.</summary>
+    public RenderTargetHandle? PresentTarget { get; set; }
+
     /// <summary>Seals the frame and transfers it into a lease. One-shot.</summary>
     public RenderFrameLease Seal()
     {
@@ -119,6 +122,7 @@ public sealed class RenderFrameBuilder
             Environment = Environment ?? EnvironmentData.Default,
             Time = Time,
             DeltaTime = DeltaTime,
+            PresentTarget = PresentTarget,
         };
 
         return new RenderFrameLease(

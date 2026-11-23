@@ -32,7 +32,19 @@ public sealed class NovaV2RuntimeOptions
     /// <summary>Capture the mouse when the runtime starts.</summary>
     public bool LockMouseOnStart { get; set; }
 
-    /// <summary>Bring up OpenXR. When no headset is present the runtime keeps
-    /// rendering flat and retries, so the same build runs on desktop.</summary>
-    public bool EnableXR { get; set; }
+    /// <summary>
+    /// Create the XR rig and service. On by default, but this only makes XR
+    /// available: OpenXR is not initialised and the viewport is not switched to
+    /// XR until <see cref="StartXR"/> is set or gameplay calls
+    /// <c>NovaV2Runtime.EnableXR()</c>. Set false to omit the rig entirely.
+    /// </summary>
+    public bool EnableXR { get; set; } = true;
+
+    /// <summary>
+    /// Start OpenXR and render to the headset as soon as the runtime is up.
+    /// Driven by <c>--xr on</c> and by a game manifest with <c>"Xr": true</c>.
+    /// With no runtime present the app stays flat in this process; it never
+    /// relaunches.
+    /// </summary>
+    public bool StartXR { get; set; }
 }

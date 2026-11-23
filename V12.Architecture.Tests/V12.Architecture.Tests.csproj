@@ -25,10 +25,14 @@
     <ProjectReference Include="$(V12SkeletalProject)" />
     <ProjectReference Include="$(V12AudioProject)" />
     <ProjectReference Include="$(V12BasicProject)" />
+    <ProjectReference Include="$(V12PhysicsProject)" />
+    <ProjectReference Include="$(V12GravityProject)" />
     <ProjectReference Include="$(V12PakProject)" />
     <ProjectReference Include="$(V12PaperProject)" />
     <ProjectReference Include="$(V12EditorProject)" />
     <ProjectReference Include="$(V12BindingsProject)" />
+    <ProjectReference Include="..\V12-Samples\MultiplayerDemo\MultiplayerDemo.csproj" />
+    <ProjectReference Include="..\V12-Samples\SpaceFlight\SpaceFlight.csproj" />
   </ItemGroup>
 
 </Project>

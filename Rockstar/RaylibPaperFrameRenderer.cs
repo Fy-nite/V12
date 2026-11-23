@@ -253,7 +253,7 @@ void main()
             var uv = mesh.UVs[index];
             var c = mesh.Colors[index];
 
-            Rlgl.Color4ub(ToByte(c.R), ToByte(c.G), ToByte(c.B), ToByte(c.A));
+            Rlgl.Color4ub(ToByte(c.X), ToByte(c.Y), ToByte(c.Z), ToByte(c.W));
             Rlgl.TexCoord2f(uv.X, uv.Y);
             Rlgl.Vertex3f(p.X, p.Y, 0f);
         }

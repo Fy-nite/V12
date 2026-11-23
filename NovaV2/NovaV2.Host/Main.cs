@@ -8,10 +8,12 @@ using System.Reflection;
 using System.Runtime.Loader;
 using V12.Basic.Building;
 using V12.Basic.Components;
+using V12.Bindings;
 using V12.Components;
 using V12.Components.Renderables;
 using V12.Components.UI;
 using V12.Core;
+using V12.Core.Core.Interfaces;
 using V12.Core.Interfaces.Renderer;
 using V12.Core.Input;
 using V12.Core.UI;
@@ -36,19 +38,40 @@ public partial class Main : Node3D
         // With no arguments the host also looks for a pak named after its own
         // executable, so renaming the binary to "MyGame.exe" and dropping
         // "MyGame.v12pak" beside it is enough to launch the game.
-        string? pakPath = NovaV2HostNode.CommandLineValue("--pak") ?? ResolveExecutablePak();
+        //
+        // `--game` deliberately wins over that fallback. An exported build ships
+        // a pak beside the exe, and loading it as well would select the pak's
+        // world over the project folder's, leaving --hot-reload watching a world
+        // that is not the one on screen.
         string? gameDir = NovaV2HostNode.CommandLineValue("--game");
+        string? pakPath = NovaV2HostNode.CommandLineValue("--pak");
+        if (pakPath is null)
+        {
+            string? executablePak = ResolveExecutablePak();
+            if (executablePak is not null && gameDir is null)
+            {
+                GD.Print($"[NovaV2.Host] Using pak named after the executable: {executablePak}");
+                pakPath = executablePak;
+            }
+            else if (executablePak is not null)
+            {
+                GD.Print($"[NovaV2.Host] --game given; not loading '{executablePak}' beside the executable.");
+            }
+        }
         string? worldPath = NovaV2HostNode.CommandLineValue("--world");
 
-        // A game declares XR in its manifest. Godot can only bring XR up when
-        // started with --xr-mode on, so relaunch once when a game needs it.
-        bool xrDisabled = NovaV2HostNode.CommandLineValue("--xr") is "0" or "false";
-        bool requiresXr = !xrDisabled && GameRequiresXr(gameDir, pakPath);
-        if (requiresXr && !XrRelaunchDone())
-        {
-            RelaunchWithXrMode();
-            return;
-        }
+        // XR never reloads the process. The rig exists by default and stays
+        // flat until asked to start:
+        //   --xr on     start XR now, in this process
+        //   --xr off    disable the rig entirely
+        //   manifest    "Xr": true starts XR, same as --xr on
+        // With neither, the game runs flat and can call runtime.EnableXR()
+        // during gameplay (a menu, a level trigger, a paired headset).
+        string? xrArgument = NovaV2HostNode.CommandLineValue("--xr-mode")
+            ?? NovaV2HostNode.CommandLineValue("--xr");
+        bool? xrOn = xrArgument is null ? null : NovaV2HostNode.IsXrOn(xrArgument);
+        bool startXr = xrOn ?? GameRequestsXr(gameDir, pakPath);
+        bool xrEnabled = xrOn != false;
 
         var root = new GameRoot();
 
@@ -64,14 +87,36 @@ public partial class Main : Node3D
         // KeepAlive is deliberate: a bare `typeof` can be optimized away.
         GC.KeepAlive(typeof(V12.Skeletal.Components.SkeletalManagerComponent));
 
+        // Physics and gravity are transitive dependencies of Basic. Touch them
+        // here so their assemblies are loaded before any gamepak starts, which
+        // also makes GravitySourceComponent resolvable from WorldML.
+        GC.KeepAlive(typeof(V12.Physics.PhysicsService));
+        GC.KeepAlive(typeof(V12.Gravity.GravityField));
+
+        bool hotReload = HasCommandLineFlag("--hot-reload") || HasCommandLineFlag("--live-scripts");
+        if (hotReload && gameDir is null)
+        {
+            GD.PushWarning(
+                "[NovaV2.Host] --hot-reload currently requires --game; pak hot reload is not wired yet.");
+        }
+
         if (gameDir is not null)
         {
-            BuildGameWorld(root, gameDir, worldPath);
+            BuildGameWorld(root, gameDir, worldPath, hotReload);
         }
         else if (pakPath is null)
         {
-            EnsureDemoActions();
-            BuildDemoWorld(root);
+            bool viewsDemo = NovaV2HostNode.CommandLineValue("--views-demo") is "1" or "true";
+
+            // A gamepak folder means the host is running an actual game. Do not
+            // build the demo world and its UI overlay on top of it.
+            if (!HasDefaultGamepaks() || viewsDemo)
+            {
+                EnsureDemoActions();
+                BuildDemoWorld(root);
+                if (viewsDemo)
+                    BuildViewsDemo(root);
+            }
         }
 
         // NovaV2HostNode._Ready picks up GameRoot.Instance (the root above).
@@ -87,7 +132,8 @@ public partial class Main : Node3D
             GamepakDirectory = gameDir is null ? "gamepaks" : "",
             // --game already initialised and started the gamepaks above.
             AutoStartFirstGamepak = gameDir is null,
-            EnableXR = requiresXr,
+            EnableXR = xrEnabled,
+            StartXR = startXr,
         });
 
         // Dev aid: V12_SCREENSHOT=<path> renders a few frames, writes a PNG and
@@ -97,6 +143,9 @@ public partial class Main : Node3D
         if (System.Environment.GetEnvironmentVariable("V12_INPUTTEST") == "1")
             RunInputSelfTest();
     }
+
+    private static bool HasCommandLineFlag(string name)
+        => OS.GetCmdlineUserArgs().Contains(name) || OS.GetCmdlineArgs().Contains(name);
 
     private static void RunInputSelfTest()
     {
@@ -199,7 +248,7 @@ public partial class Main : Node3D
     /// component types resolve), its Assets folder as <c>v12://Assets</c>, and
     /// its world file.
     /// </summary>
-    private static void BuildGameWorld(GameRoot root, string gameDir, string? worldPath)
+    private static void BuildGameWorld(GameRoot root, string gameDir, string? worldPath, bool hotReload)
     {
         gameDir = Path.GetFullPath(gameDir);
         if (!Directory.Exists(gameDir))
@@ -208,7 +257,38 @@ public partial class Main : Node3D
             return;
         }
 
-        LoadGameAssembly(root, gameDir);
+        CSharpScriptHost? scripts = null;
+        Assembly? scriptAssembly = null;
+
+        if (hotReload)
+        {
+            string mode = System.Environment.GetEnvironmentVariable("V12_MP_MODE") ?? "solo";
+            string projectName = Path.GetFileName(gameDir.TrimEnd(Path.DirectorySeparatorChar));
+            scripts = new CSharpScriptHost(gameDir, $"NovaV2HotReload_{projectName}_{mode}");
+            if (scripts.HasSources())
+            {
+                var compile = scripts.Reload();
+                if (compile.Success && scripts.Assembly is { } liveAssembly)
+                {
+                    scriptAssembly = liveAssembly;
+                    root.LoadGamepacksFromAssembly(liveAssembly);
+                    GD.Print($"[NovaV2.Host] Live C# scripts: {liveAssembly.GetName().Name}");
+                }
+                else
+                {
+                    GD.PushError("[NovaV2.Host] Live C# compile failed; fix the errors and save to retry.");
+                }
+            }
+            else
+            {
+                GD.Print("[NovaV2.Host] --hot-reload: no C# sources; using the precompiled assembly.");
+                LoadGameAssembly(root, gameDir);
+            }
+        }
+        else
+        {
+            LoadGameAssembly(root, gameDir);
+        }
 
         var resolver = new V12AssetResolver();
         resolver.Mount("Assets", Path.Combine(gameDir, "Assets"));
@@ -218,6 +298,7 @@ public partial class Main : Node3D
         if (!File.Exists(worldFile))
         {
             GD.PushError($"[NovaV2.Host] world file not found: {worldFile}");
+            scripts?.Dispose();
             return;
         }
 
@@ -228,6 +309,12 @@ public partial class Main : Node3D
         world.TickingEnabled = true;
         root.Worlds.Add(world);
         root.SelectWorld(world);
+
+        if (hotReload)
+        {
+            var hot = new NovaV2HotReloadService(root, world, worldFile, scripts, scriptAssembly);
+            hot.Start();
+        }
 
         GD.Print($"[NovaV2.Host] Loaded '{Path.GetFileName(worldFile)}' from {gameDir}");
     }
@@ -311,11 +398,11 @@ public partial class Main : Node3D
     }
 
     /// <summary>
-    /// True when the game's manifest declares <c>"Xr": true</c>. Works for a
-    /// project folder and for a packaged archive (the manifest is streamed
-    /// without extracting the pak).
+    /// True when the game's manifest declares <c>"Xr": true</c>, meaning the
+    /// game wants XR started at launch. Works for a project folder and for a
+    /// packaged archive (the manifest is streamed without extracting the pak).
     /// </summary>
-    private static bool GameRequiresXr(string? gameDir, string? pakPath)
+    private static bool GameRequestsXr(string? gameDir, string? pakPath)
     {
         try
         {
@@ -340,57 +427,6 @@ public partial class Main : Node3D
         }
 
         return false;
-    }
-
-    /// <summary>True when this process is already the relaunched XR run.</summary>
-    private static bool XrRelaunchDone()
-    {
-        if (System.Environment.GetEnvironmentVariable("V12_XR_RELAUNCHED") == "1")
-            return true;
-
-        return Array.IndexOf(OS.GetCmdlineUserArgs(), "--xr-relaunched") >= 0;
-    }
-
-    /// <summary>
-    /// Restarts the process with <c>--xr-mode on</c>. Godot only creates an XR
-    /// instance when that flag is present at startup, and the project keeps
-    /// OpenXR off so a flat game never takes over a headset.
-    ///
-    /// Godot removes engine arguments from <c>OS.GetCmdlineArgs()</c>, so the
-    /// project path has to be reconstructed rather than copied.
-    /// </summary>
-    private void RelaunchWithXrMode()
-    {
-        try
-        {
-            string executable = OS.GetExecutablePath();
-            var args = new List<string>();
-
-            // Source runs need --path; an exported build already knows its pck.
-            string projectDir = ProjectSettings.GlobalizePath("res://");
-            if (!string.IsNullOrWhiteSpace(projectDir) &&
-                File.Exists(Path.Combine(projectDir, "project.godot")))
-            {
-                args.Add("--path");
-                args.Add(projectDir.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar));
-            }
-
-            args.Add("--xr-mode");
-            args.Add("on");
-            args.Add("--");
-            args.AddRange(OS.GetCmdlineUserArgs());
-            args.Add("--xr-relaunched");
-
-            System.Environment.SetEnvironmentVariable("V12_XR_RELAUNCHED", "1");
-            GD.Print($"[NovaV2.Host] Game requires XR; relaunching: {executable} {string.Join(' ', args)}");
-            OS.CreateProcess(executable, args.ToArray(), openConsole: false);
-        }
-        catch (Exception ex)
-        {
-            GD.PushError($"[NovaV2.Host] XR relaunch failed: {ex.Message}");
-        }
-
-        GetTree().Quit();
     }
 
     /// <summary>
@@ -422,10 +458,7 @@ public partial class Main : Node3D
 
             string candidate = Path.Combine(directory, pakName);
             if (File.Exists(candidate))
-            {
-                GD.Print($"[NovaV2.Host] Using pak named after the executable: {candidate}");
                 return candidate;
-            }
         }
 
         return null;
@@ -452,6 +485,89 @@ public partial class Main : Node3D
 
         _screenshotPath = null;
         GetTree().Quit();
+    }
+
+    /// <summary>
+    /// Two explicit views of the same world, each with its own camera and UI
+    /// surface. Run with <c>--views-demo 1</c>.
+    /// </summary>
+    private static void BuildViewsDemo(GameRoot root)
+    {
+        var world = root.SelectedWorld;
+        if (world is null) return;
+
+        var secondCamera = new Element("ViewsDemoCamera");
+        secondCamera.SetPosition(-3f, 2f, 6f);
+        secondCamera.AddComponent(new CameraComponent
+        {
+            IsCurrent = false,
+            Fov = 55f,
+            NearClip = 0.05f,
+            FarClip = 200f,
+        });
+        world.AddElement(secondCamera);
+
+        var canvasElement = new Element("ViewsDemoCanvas");
+        canvasElement.AddComponent(new CanvasComponent
+        {
+            ScreenSpace = true,
+            Width = 1280,
+            Height = 720,
+        });
+
+        var row = new Element("ViewsDemoRow");
+        row.AddComponent(new HLayoutComponent { Spacing = 4f, Padding = 4f });
+        canvasElement.AddChild(row);
+
+        AddView(row, world, "ViewsDemoLeft", secondCamera.Id, "#202830");
+        AddView(row, world, "ViewsDemoRight", FindCameraId(world), "#302028");
+
+        world.AddElement(canvasElement);
+    }
+
+    private static void AddView(
+        Element parent,
+        World world,
+        string name,
+        long cameraId,
+        string background)
+    {
+        var view = new Element(name);
+        view.AddComponent(new VLayoutComponent { Expand = true });
+        view.AddComponent(new ViewportComponent { BackgroundColor = background });
+        view.AddComponent(new RenderViewComponent
+        {
+            CameraId = cameraId,
+            WorldId = world.Id,
+            Clear = V12.Rendering.ClearMode.Color,
+            ClearColor = background,
+            LayerMask = V12.Rendering.RenderLayers.Default,
+            IsActive = true,
+        });
+        parent.AddChild(view);
+    }
+
+    private static long FindCameraId(World world)
+    {
+        foreach (var root in world.Root)
+        {
+            long id = FindCameraId(root);
+            if (id != 0) return id;
+        }
+        return 0;
+    }
+
+    private static long FindCameraId(IWorldElement element)
+    {
+        if (element.GetComponent<CameraComponent>() is { IsCurrent: true })
+            return element.Id;
+
+        foreach (var child in element.Children)
+        {
+            long id = FindCameraId(child);
+            if (id != 0) return id;
+        }
+        return 0;
     }
 
     private static void BuildDemoWorld(GameRoot root)
@@ -562,6 +678,18 @@ public partial class Main : Node3D
                 PreferredHeight = 38f,
             });
         }
+    }
+
+    /// <summary>
+    /// True when the default gamepak folder contains at least one assembly.
+    /// Used to decide whether to build the demo world, so a real gamepak gets a
+    /// clean scene without the host's demo UI.
+    /// </summary>
+    private static bool HasDefaultGamepaks()
+    {
+        const string directory = "gamepaks";
+        return Directory.Exists(directory)
+            && Directory.EnumerateFiles(directory, "*.dll", SearchOption.AllDirectories).Any();
     }
 
     private static void EnsureDemoActions()

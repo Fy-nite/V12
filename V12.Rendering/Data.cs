@@ -535,7 +535,15 @@ public readonly record struct ClearSettings(ClearMode Mode, Vector4 Color = defa
 
 public struct RenderView
 {
+    /// <summary>Stable view id (the render-view element id).</summary>
     public long Id;
+
+    /// <summary>UI surface element id that displays this view.</summary>
+    public long ViewportId;
+
+    /// <summary>World this view renders.</summary>
+    public Guid WorldId;
+
     public long CameraElementId;
     public bool IsCurrentCamera;
     public Matrix4x4 View;
@@ -546,6 +554,9 @@ public struct RenderView
     public RenderTargetHandle? Target;
     public uint LayerMask;
     public StereoEye Eye;
+
+    /// <summary>Higher draws later when views overlap.</summary>
+    public int Priority;
 }
 
 public enum LightKind
@@ -558,6 +569,7 @@ public enum LightKind
 public struct LightItem
 {
     public long ElementId;
+    public Guid WorldId;
     public bool Active;
     public LightKind Kind;
     public Matrix4x4 World;
@@ -575,7 +587,16 @@ public struct LightItem
 public struct DrawItem
 {
     public long ElementId;
-    public long ViewportId;
+
+    /// <summary>World this item belongs to. Views filter by this id.</summary>
+    public Guid WorldId;
+
+    /// <summary>
+    /// Optional view restriction. 0 renders in every matching view; a non-zero
+    /// id renders only in that view (UI layers, nested 3D widgets).
+    /// </summary>
+    public long ViewId;
+
     public MeshHandle Mesh;
     public MaterialHandle Material;
     public Matrix4x4 World;
@@ -624,6 +645,7 @@ public struct SkinItem
 public struct ParticleItem
 {
     public long ElementId;
+    public Guid WorldId;
     public bool Active;
     public Matrix4x4 World;
 
@@ -656,6 +678,26 @@ public struct ParticleItem
     public uint LayerMask;
 }
 
+/// <summary>Reserved view ids emitted by the engine (element ids are positive).</summary>
+public static class RenderViewIds
+{
+    /// <summary>Screen-space UI view. World-canvas UI views occupy the range below it.</summary>
+    public const long ScreenUi = -1000;
+}
+
+/// <summary>
+/// Where the engine renders the screen-space UI view. The host chooses the
+/// presentation policy; the renderer only draws the view it is given.
+/// </summary>
+public enum UiTargetPolicy
+{
+    /// <summary>Draw into the presentation surface. No render target is allocated.</summary>
+    PresentSurface,
+
+    /// <summary>Render into an engine-owned target, named by <see cref="RenderFrame.PresentTarget"/>.</summary>
+    OwnTarget,
+}
+
 /// <summary>Immutable frame view. The renderer reads only this and never the live world.</summary>
 public struct RenderFrame
 {
@@ -670,6 +712,13 @@ public struct RenderFrame
     public EnvironmentData Environment;
     public float Time;
     public float DeltaTime;
+
+    /// <summary>
+    /// Surface the host should present. Null means the host's own presentation
+    /// surface (the window); non-null is an engine-owned target the host shows
+    /// after <see cref="IRenderer.Submit"/>.
+    /// </summary>
+    public RenderTargetHandle? PresentTarget;
 }
 
 // ── Capabilities and readback ───────────────────────────────────────────────
@@ -723,7 +772,11 @@ public readonly record struct ViewportInfo(
     float Height,
     bool HasCamera,
     Matrix4x4 View,
-    Matrix4x4 Projection);
+    Matrix4x4 Projection,
+    Guid WorldId = default,
+    uint LayerMask = RenderLayers.Default,
+    long CameraElementId = 0,
+    long ViewId = 0);
 
 public enum WindowEventKind
 {

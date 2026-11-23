@@ -1,0 +1,14 @@
+[remap]
+
+importer="glsl"
+type="RDShaderFile"
+uid="uid://62al0egi0eq7"
+path="res://.godot/imported/workbench.glsl-9faa2c8f5151406a37f5055c7485e3fc.res"
+
+[deps]
+
+source_file="res://addons/workbench/workbench.glsl"
+dest_files=["res://.godot/imported/workbench.glsl-9faa2c8f5151406a37f5055c7485e3fc.res"]
+
+[params]
+

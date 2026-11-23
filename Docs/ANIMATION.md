@@ -4,6 +4,9 @@ V12 does not implement skeletal animation itself. The `V12.Skeletal` module
 wraps a runtime behind an interface, imports models into a backend-neutral asset,
 and exposes components for gameplay.
 
+For static geometry, use `ModelInstance`/`MeshAsset` instead — see
+[`MODEL_LOADING.md`](MODEL_LOADING.md). This document covers the animated path.
+
 ```
 V12.Skeletal
 ├─ Components

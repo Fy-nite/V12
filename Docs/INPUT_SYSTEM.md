@@ -74,6 +74,14 @@ inputService.SendEvent(new InputEvent
 synchronously. Exceptions from a handler are swallowed, so one bad handler does
 not stop the others.
 
+Consumption has one exception: raw keyboard edges (`ButtonDown`/`ButtonUp` with
+`Key` set) are delivered to every handler even after one sets `Handled`. A Paper
+or world-UI handler can keep a key for a focused control, but a game action map
+still receives the edge, so a focused UI element cannot silently disable every
+keybinding. Pointer, wheel, text and character events keep the normal
+consume-and-stop behavior. Games that must suppress keybinds while typing should
+check `InputService.UiCapturesKeyboard`.
+
 ## Using InputActionMap
 
 `InputActionMap` is the recommended surface for gameplay. It maps raw events to

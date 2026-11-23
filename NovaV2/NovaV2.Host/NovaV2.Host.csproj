@@ -1,4 +1,4 @@
-<Project Sdk="Godot.NET.Sdk/4.7.0">
+<Project Sdk="Godot.NET.Sdk/4.8.0-beta.3">
 
   <PropertyGroup>
     <TargetFramework>net10.0</TargetFramework>
@@ -13,6 +13,12 @@
     <ProjectReference Include="..\NovaV2.Shared\NovaV2.Shared.csproj" />
     <ProjectReference Include="$(V12EngineProject)" />
     <ProjectReference Include="$(V12BasicProject)" />
+    <ProjectReference Include="$(V12BindingsProject)" />
+    <!-- Gamepaks use these through Basic; direct references keep the host
+         output (and exported builds) carrying the DLLs the gamepak loader
+         needs to resolve at runtime. -->
+    <ProjectReference Include="$(V12PhysicsProject)" />
+    <ProjectReference Include="$(V12GravityProject)" />
   </ItemGroup>
 
 </Project>

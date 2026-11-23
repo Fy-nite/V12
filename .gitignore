@@ -377,6 +377,8 @@ ASALocalRun/
 # BeatPulse healthcheck temp database
 healthchecksdb
 
+working_docs
+
 # Backup folder for Package Reference Convert tool in Visual Studio 2017
 MigrationBackup/
 
@@ -486,3 +488,6 @@ nul
 
 # Vim temporary swap files
 *.swp
+
+# NovaV2 gamepak drop folder (written by V12-Samples/SpaceFlight) 
+NovaV2/NovaV2.Host/gamepaks/

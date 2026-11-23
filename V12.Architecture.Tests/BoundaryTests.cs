@@ -18,6 +18,8 @@ public sealed class BoundaryTests
 {
     private static readonly Assembly Engine = typeof(V12.Core.GameRoot).Assembly;
     private static readonly Assembly Basic = typeof(V12.Basic.BasicRegistry).Assembly;
+    private static readonly Assembly Physics = typeof(V12.Physics.PhysicsService).Assembly;
+    private static readonly Assembly Gravity = typeof(V12.Gravity.GravityField).Assembly;
     private static readonly Assembly Pak = typeof(V12.Pak.V12PakLoader).Assembly;
     private static readonly Assembly Editor = typeof(V12.Editor.IViewportInteraction).Assembly;
     private static readonly Assembly Bindings = typeof(V12.Bindings.V12LinkedAssemblies).Assembly;
@@ -42,6 +44,26 @@ public sealed class BoundaryTests
         => AssertNoDependency(Basic, RendererAndToolDependencies);
 
     [Fact]
+    public void Physics_ShouldNotDependOn_RendererOrToolAssemblies()
+        => AssertNoDependency(Physics, RendererAndToolDependencies);
+
+    [Fact]
+    public void Gravity_ShouldNotDependOn_RendererOrToolAssemblies()
+        => AssertNoDependency(Gravity, RendererAndToolDependencies);
+
+    [Fact]
+    public void Physics_ShouldNotDependOn_GameplayLayer()
+        => AssertNoDependency(Physics, "V12.Basic");
+
+    [Fact]
+    public void Gravity_ShouldNotDependOn_PhysicsOrGameplayLayer()
+        => AssertNoDependency(Gravity, "V12.Physics", "V12.Basic");
+
+    [Fact]
+    public void Engine_ShouldNotDependOn_BepuOrPhysicsPackages()
+        => AssertNoDependency(Engine, "BepuPhysics", "BepuUtilities", "V12.Physics", "V12.Gravity");
+
+    [Fact]
     public void Pak_ShouldNotDependOn_RendererOrToolAssemblies()
         => AssertNoDependency(Pak, RendererAndToolDependencies);
 
@@ -62,6 +84,34 @@ public sealed class BoundaryTests
         {
             Assert.DoesNotContain(forbidden, csproj, StringComparison.OrdinalIgnoreCase);
         }
+    }
+
+    [Fact]
+    public void Engine_ProjectFile_ShouldNotReference_BepuOrPhysicsPackages()
+    {
+        var csproj = ReadRepoFile("V12-Engine", "V12.csproj");
+
+        Assert.DoesNotContain("BepuPhysics", csproj, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("BepuUtilities", csproj, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("V12.Physics", csproj, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("V12.Gravity", csproj, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void Physics_ProjectFile_ShouldReference_Bepu()
+    {
+        var csproj = ReadRepoFile("V12.Physics", "V12.Physics.csproj");
+
+        Assert.Contains("BepuPhysics", csproj, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void Gravity_ProjectFile_ShouldNotReference_BepuOrPhysics()
+    {
+        var csproj = ReadRepoFile("V12.Gravity", "V12.Gravity.csproj");
+
+        Assert.DoesNotContain("BepuPhysics", csproj, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("V12.Physics", csproj, StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]

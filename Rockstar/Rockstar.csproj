@@ -13,6 +13,7 @@
       <ProjectReference Include="$(V12PakProject)" />
    <ProjectReference Include="$(V12EngineProject)" />
    <ProjectReference Include="$(V12BasicProject)" />
+   <ProjectReference Include="$(V12PaperProject)" />
   </ItemGroup>
 
 </Project>

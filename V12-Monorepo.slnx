@@ -41,6 +41,10 @@
     <Project Path="V12.Pak/V12.Pak.csproj" />
     <Project Path="V12.Skeletal/V12.Skeletal.csproj" />
   </Folder>
+  <Folder Name="/V12-Physics/">
+    <Project Path="V12.Physics/V12.Physics.csproj" />
+    <Project Path="V12.Gravity/V12.Gravity.csproj" />
+  </Folder>
   <Folder Name="/Tests/">
     <Project Path="V12.Architecture.Tests/V12.Architecture.Tests.csproj" />
   </Folder>
@@ -62,6 +66,9 @@
   </Folder>
   <Folder Name="/V12-Samples/">
     <Project Path="V12-Samples/HelloDotnet/HelloDotnet.csproj" />
+    <Project Path="V12-Samples/MultiplayerDemo/MultiplayerDemo.csproj" />
+    <Project Path="V12-Samples/SpaceFlight/SpaceFlight.csproj" />
+    <Project Path="V12-Samples/UiShowcase/UiShowcase.csproj" />
   </Folder>
   <Folder Name="/V12-Sdk/">
     <Project Path="V12-Sdk/V12.Sdk.csproj" />
