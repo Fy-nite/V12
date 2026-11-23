@@ -127,13 +127,37 @@ In V12, the world is not just content.
 The world is also the development environment.
 
 
+## Contributing
+
+See [CONTRIBUTING.md](CONTRIBUTING.md). Contributions are accepted under the
+AGPL, with a relicensing grant to Finite so that the commercial exception can
+keep working alongside it.
+
 ## License
 
-V12 is AGPL-3.0 with a Commercial Exception.
+V12 is AGPL-3.0 with a [Commercial Exception](COMMERCIAL-EXCEPTION.md).
 
 **TL;DR:**
-- If your V12‑based project earns **less than $1,000 USD per year** (from any source: sales, microtransactions, ads, donations, etc.), you may use V12 freely without contacting us.
-- If your project earns **$1,000 or more per year**, you need a commercial license – contact us for affordable terms (e.g., $200/year for the $1k–$10k tier).
-- See [COMMERCIAL-EXCEPTION.md](COMMERCIAL-EXCEPTION.md) for full details.
+- Under **$1,000 USD net revenue per year**, use V12 for free. No contact needed.
+- From **$1,000**, take a license if you want to ship without publishing your source. That is what the fee buys: the AGPL's source obligations, waived for your game.
+- One license per studio, covering all its titles. Bands move up immediately and are billed pro-rata from the day you cross.
+
+| Net revenue / year | Fee | Closed source |
+| --- | --- | --- |
+| under $1,000 | $0 | no, AGPL applies |
+| $1,000 to $10,000 | $200 | yes |
+| $10,000 to $100,000 | $500 | yes |
+| over $100,000 | 1%, minimum $2,000 | yes |
+
+"Net revenue" excludes refunds, storefront cuts, payment fees, and sales tax. It
+counts what you actually keep.
+
+If you would rather publish your source and comply with the AGPL, you owe
+nothing at any revenue level. See [COMMERCIAL-EXCEPTION.md](COMMERCIAL-EXCEPTION.md)
+for definitions, revenue rules, crossing and renewal mechanics, and the full
+closed-source grant.
+
+`Contract` and the `ObjektRT` libraries are MIT licensed and are not covered by
+the exception, because they do not need one.
 
 We trust you to be honest, and we're happy to work with successful creators.

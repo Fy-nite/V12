@@ -262,6 +262,28 @@ All notable engine and tooling changes. The gameplay-facing rules live in
 
 ### Changed
 
+- Rewrite `COMMERCIAL-EXCEPTION.md` as a complete licensing document at version
+  1.0. It now defines the terms it relies on (`Covered Work`, `Studio`, `Net
+  Revenue`, `Calendar Year`), states the relationship to the AGPL instead of
+  implying a restriction the license does not allow, and separates the two
+  products the exception actually offers: free use under the AGPL below the
+  revenue threshold, and a closed-source grant from the Indie tier upwards.
+  Adds the four-tier fee table (Free under $1,000, Indie $200, Studio $500,
+  Enterprise 1% with a $2,000 minimum), per-studio aggregation across all
+  titles with an anti-splitting rule, a net-of-fees-and-taxes revenue basis,
+  pro-rata billing with a 90-day grace period when a studio crosses a band,
+  the two-consecutive-year rule for returning to the Free tier, annual
+  declaration and audit terms, termination and cure, an explicit out-of-scope
+  section naming `Contract` and `ObjektRT` as MIT, a contribution relicensing
+  clause, and a FAQ. Syncs the `readme.md` license section to the same table.
+- Add a root `CONTRIBUTING.md`. It carries the contribution license grant from
+  Section 14 of the commercial exception, the submodule workflow, the build and
+  architecture-test commands, the changelog rules, and the commit message style.
+  Without that grant Finite could not relicense contributed code, which would
+  make the paid tiers impossible to sell.
+- Add the short commercial exception notice to `V12-Engine`, `V12.Basic`, and
+  `V12.Monogame`. Those three ship an AGPL `LICENCE` but had no copy of the
+  exception, so a clone of one of them on its own had no path to a paid license.
 - Kinematic bodies can now be driven as continuous motion.
   `PhysicsBodyComponent.ContinuousKinematicMotion` makes
   `PhysicsLocomotionSystem` publish `delta / deltaTime` as the body's velocity
