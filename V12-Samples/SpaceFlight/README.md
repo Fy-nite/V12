@@ -33,6 +33,8 @@ falling around Earth while Earth orbits the Sun, all driven by point-mass
   ship's position and does not rotate with the gravity field.
 - A small navball fixed in the lower-right corner: a ship-relative horizon and
   meridian cross, with cyan prograde and red retrograde markers.
+- Looped background music and a held-space thruster loop through the engine
+  `AudioSystem` (see [Audio](#audio)).
 - Console telemetry once per second: body name, altitude, speed, eccentricity,
   semi-major axis, apsides and period, computed by
   `V12.Gravity.OrbitalState`.
@@ -134,6 +136,24 @@ A mesh shell is the wrong tool here even though the source model is one: the GLB
 bakes a 500-unit radius into its node transforms, so any element scale
 multiplies that. A shell only works while it sits between the camera and the far
 clip, and a single-sided one is culled once the camera is inside it.
+
+## Audio
+
+The scene uses the engine `AudioSystem` and `AudioSourceComponent`. NovaV2
+registers `OwnAudioEngine` and runs Godot with the Dummy audio driver, so only
+one side opens the output device.
+
+- `Assets/spaceflight.mp3` autoplays on the `Music` bus at `Volume = 0.12` and
+  loops.
+- `Assets/benvibrant-thruster-loop-562715.mp3` is a looped source on the plume
+  element. `SpaceFlightInputComponent` starts it on the held-space rising edge
+  and stops it on release, through `ThrustAudio`.
+
+Both sources use `SpatialBlend = 0`. The chase camera sits 180 units from the
+ship and the orbit camera can be thousands of units away, so a 3D source with
+the component's default 40-unit maximum distance would be silent. Set
+`SpatialBlend` back toward 1 and raise `MinDistance` / `MaxDistance` if you want
+the thruster to pan with the camera instead.
 
 ## Build
 

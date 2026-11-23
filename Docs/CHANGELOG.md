@@ -64,6 +64,12 @@ All notable engine and tooling changes. The gameplay-facing rules live in
   `WASD` rotates the ship, `Space` is a held nose thrust, the arrow keys pan
   and tilt the chase camera around the ship, `Q`/`E` zoom, and `R` resets the
   ship to a fresh circular orbit around Earth's current position.
+- SpaceFlight audio: `Assets/spaceflight.mp3` autoplays as a quiet looped music
+  source on the `Music` bus at volume 0.12, and
+  `Assets/benvibrant-thruster-loop-562715.mp3` loops while `Space` is held. Both
+  use `AudioSourceComponent` with `SpatialBlend = 0` so the far chase/orbit
+  cameras still hear them; `SpaceFlightInputComponent.ThrustAudio` starts and
+  stops the thruster on the thrust edge.
 - `OrbitPathMesh` in the sample: a live predicted orbit tube generated from
   `OrbitalState`, so a burn bends the visible path into the new ellipse. It
   selects the local `GravitySourceComponent` by sphere-of-influence containment

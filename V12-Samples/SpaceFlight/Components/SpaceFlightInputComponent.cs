@@ -29,6 +29,7 @@ public sealed class SpaceFlightInputComponent : ScriptableComponent
     public OrbitCameraComponent? Camera { get; set; }
     public ProgradeAttitudeComponent? Attitude { get; set; }
     public ThrustPlumeComponent? ThrustPlume { get; set; }
+    public AudioSourceComponent? ThrustAudio { get; set; }
 
     private InputActionMap? _actions;
     private InputService? _input;
@@ -114,7 +115,13 @@ public sealed class SpaceFlightInputComponent : ScriptableComponent
 
         bool thrusting = _actions.GetButton("Thrust");
         if (thrusting != _wasThrusting)
+        {
             Console.WriteLine($"[SpaceFlight] thrust {(thrusting ? "on" : "off")}");
+            if (thrusting)
+                ThrustAudio?.Play();
+            else
+                ThrustAudio?.Stop();
+        }
         _wasThrusting = thrusting;
 
         if (thrusting)

@@ -22,7 +22,7 @@ if (-not $Godot) {
     $candidates = @(
         $env:GODOT,
         (Get-Command godot -ErrorAction SilentlyContinue | Select-Object -ExpandProperty Source -ErrorAction SilentlyContinue),
-        "C:\Users\charlie\Desktop\Godot_v4.8-beta3_mono_win64\Godot_v4.8-beta3_mono_win64.exe"
+        "C:\Users\charlie\Desktop\Godot_v4.8-beta3_mono_win64\Godot_v4.8-beta3_mono_win64.exe" # should change this based on the users system.
     ) | Where-Object { $_ -and (Test-Path $_) }
 
     $Godot = $candidates | Select-Object -First 1

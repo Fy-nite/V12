@@ -3,9 +3,11 @@ using System.Linq;
 using System.Numerics;
 using SpaceFlight;
 using SpaceFlight.Components;
+using V12.Audio;
 using V12.Basic.Scene;
 using V12.Components;
 using V12.Core;
+using V12.Core.Audio;
 using V12.Core.Input;
 using V12.Core.Interfaces.Renderer;
 using V12.Gravity;
@@ -307,6 +309,65 @@ public sealed class SpaceFlightSampleTests
 
         Assert.NotNull(collider);
         Assert.Equal(MeshShape.Sphere, collider!.Shape);
+    }
+
+    [Fact]
+    public void SpaceFlightScene_HasMusicAndThrusterAudio()
+    {
+        var root = new GameRoot();
+        SpaceFlightScene.Build(root);
+
+        var world = root.Worlds.Single(w => w.WorldName == "SpaceFlight");
+        var sources = world.Enumerate()
+            .SelectMany(element => element.Components.OfType<AudioSourceComponent>())
+            .ToList();
+
+        var music = sources.Single(s => s.AudioClipPath.Contains("spaceflight.mp3"));
+        Assert.True(music.Loop);
+        Assert.True(music.Autoplay);
+        Assert.Equal(0f, music.SpatialBlend);
+        Assert.InRange(music.Volume, 0.01f, 0.25f); // quiet by default
+
+        var thruster = sources.Single(s => s.AudioClipPath.Contains("thruster"));
+        Assert.True(thruster.Loop);
+        Assert.False(thruster.Autoplay);
+        Assert.Equal(0f, thruster.SpatialBlend);
+
+        var ship = world.Enumerate().Single(e => e.Name == "Ship");
+        var input = ship.GetComponent<SpaceFlightInputComponent>();
+        Assert.NotNull(input);
+        Assert.Same(thruster, input!.ThrustAudio);
+    }
+
+    [Fact]
+    public async Task SpaceFlightMusic_ReachesTheAudioSystem()
+    {
+        var root = new GameRoot();
+        var engine = new NullAudioEngine();
+        root.Registry.Register("IAudioEngine", engine);
+        await engine.StartAsync();
+
+        SpaceFlightScene.Build(root);
+
+        var world = root.Worlds.Single(w => w.WorldName == "SpaceFlight");
+        world.TickingEnabled = true;
+        root.SelectWorld(world);
+        root.Initialize();
+
+        for (int i = 0; i < 3; i++)
+            root.V12Tick(1f / 60f);
+
+        var music = world.Enumerate()
+            .SelectMany(element => element.Components.OfType<AudioSourceComponent>())
+            .Single(source => source.AudioClipPath.Contains("spaceflight.mp3"));
+
+        var system = root.Registry.Get<AudioSystem>("AudioSystem");
+        Assert.NotNull(system);
+        Assert.True(system!.TryGetChannel(music.Id, out var channel));
+        Assert.True(channel.Loop);
+        Assert.InRange(channel.Gain, 0.1f, 0.15f);
+
+        engine.Dispose();
     }
 
     private static void AssertTap(InputActionMap map, InputKey key, string action)

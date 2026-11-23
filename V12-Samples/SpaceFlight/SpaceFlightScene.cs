@@ -6,6 +6,7 @@ using V12.Basic.Components;
 using V12.Components;
 using V12.Components.Renderables;
 using V12.Core;
+using V12.Core.Audio;
 using V12.Core.Interfaces.Renderer;
 using V12.Gravity;
 using V12.Gravity.Components;
@@ -107,6 +108,21 @@ public static class SpaceFlightScene
             ShadowsEnabled = false,
         });
         world.AddElement(environment);
+
+        // Quiet looped background music. SpatialBlend 0 keeps it out of the 3D
+        // attenuation path: the camera ranges from 180 to a few thousand units
+        // from the ship, which would otherwise fade the track to silence.
+        var music = new Element("Music");
+        music.AddComponent(new AudioSourceComponent
+        {
+            AudioClipPath = "v12://Assets/spaceflight.mp3",
+            Volume = 0.12f,
+            Loop = true,
+            Autoplay = true,
+            SpatialBlend = 0f,
+            Bus = AudioSourceBus.Music,
+        });
+        world.AddElement(music);
         var sun = new Element("Sun");
         sun.SetRotation(-38f, -32f, 0f);
         sun.AddComponent(new GenericLightComponent
@@ -360,6 +376,21 @@ public static class SpaceFlightScene
             OffScale = 0.001f,
         };
         plume.AddComponent(plumeComponent);
+
+        // Held-space exhaust loop. It rides the plume element so it follows the
+        // hull, but SpatialBlend 0 keeps it audible from the orbit camera too;
+        // the camera can sit thousands of units away.
+        var thrusterAudio = new AudioSourceComponent
+        {
+            AudioClipPath = "v12://Assets/benvibrant-thruster-loop-562715.mp3",
+            Volume = 0.35f,
+            Loop = true,
+            Autoplay = false,
+            SpatialBlend = 0f,
+            Bus = AudioSourceBus.Sfx,
+        };
+        plume.AddComponent(thrusterAudio);
+
         plume.LocalTransform = new TRS
         {
             Position = new Vector3(0f, 0f, 26f),
@@ -368,6 +399,7 @@ public static class SpaceFlightScene
         };
         ship.AddChild(plume);
         input.ThrustPlume = plumeComponent;
+        input.ThrustAudio = thrusterAudio;
 
         // A live prediction of the current orbit. It starts on the circular
         // reference ring and becomes an ellipse after a burn.
