@@ -1,6 +1,7 @@
 using System;
 using System.Numerics;
 using V12.Components;
+using V12.Core;
 using V12.Core.Core.Interfaces;
 
 namespace SpaceFlight.Components;
@@ -11,7 +12,7 @@ namespace SpaceFlight.Components;
 /// <see cref="CenterElement"/> is set the track follows that element, which is
 /// how the Moon stays with Earth while the Earth orbits the Sun.
 /// </summary>
-public sealed class PlanetOrbitComponent : ScriptableComponent
+public sealed class PlanetOrbitComponent : ScriptableComponent, IFloatingOriginAware
 {
     public Vector3 Center { get; set; }
     public IWorldElement? CenterElement { get; set; }
@@ -52,5 +53,11 @@ public sealed class PlanetOrbitComponent : ScriptableComponent
 
         LinearVelocity = centerVelocity
                        + new Vector3(-sin * AngularSpeed * Radius, 0f, cos * AngularSpeed * Radius);
+    }
+
+    /// <summary>The track centre lives in world space, so it follows the bubble.</summary>
+    public void OnOriginShift(Vector3 delta)
+    {
+        Center -= delta;
     }
 }

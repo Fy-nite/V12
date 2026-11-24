@@ -120,6 +120,35 @@ public sealed class GravityMathTests
     }
 
     [Fact]
+    public void Propagate_BackwardsQuarterPeriod_StaysOnCircle()
+    {
+        var state = CircularState(TestRadius);
+        var next = state.Propagate(-state.Period / 4);
+
+        Assert.InRange(next.Radius, TestRadius * 0.999, TestRadius * 1.001);
+
+        double cosine = Double3.Dot(next.Position, state.Position) / (next.Radius * state.Radius);
+        Assert.InRange(cosine, -1e-3, 1e-3);
+    }
+
+    [Fact]
+    public void Propagate_NearParabolicState_RemainsFinite()
+    {
+        double radius = TestRadius;
+        double speed = OrbitalMechanics.EscapeSpeed(EarthMu, radius) * (1 - 1e-9);
+        var state = new OrbitalState(
+            new Double3(radius, 0, 0),
+            new Double3(0, 0, speed),
+            EarthMu);
+
+        var next = state.Propagate(600);
+
+        Assert.False(double.IsNaN(next.Position.X));
+        Assert.False(double.IsInfinity(next.Position.X));
+        Assert.True(next.Radius > 0);
+    }
+
+    [Fact]
     public void Propagate_HyperbolicState_RemainsFinite()
     {
         double radius = 7_000_000;
@@ -174,6 +203,65 @@ public sealed class GravityMathTests
         Assert.Equal(1, system.LastSourceCount);
         var acceleration = system.Field.SampleAcceleration(new Vector3(10f, 0f, 0f));
         Assert.InRange(acceleration.X, -10.1f, -9.9f);
+    }
+
+    [Fact]
+    public void GravityFieldSystem_CachesSourceDiscovery()
+    {
+        var root = new GameRoot();
+        var world = new World("Gravity");
+        root.Worlds.Add(world);
+        root.SelectWorld(world);
+        root.WorldManager.ReconcileAll();
+
+        var planet = new Element("Planet");
+        planet.AddComponent(new GravitySourceComponent { Mu = 1000f, SurfaceRadius = 10f });
+        world.AddElement(planet);
+
+        var system = new GravityFieldSystem(root);
+        system.Initialize(root);
+        system.Update(1f / 60f);
+        Assert.Equal(1, system.LastSourceCount);
+
+        // A child source added without a world structure event stays out of the
+        // cache until the slow rescan interval expires.
+        var moon = new Element("Moon");
+        moon.AddComponent(new GravitySourceComponent { Mu = 100f, SurfaceRadius = 5f });
+        planet.AddChild(moon);
+
+        system.Update(1f / 60f);
+        Assert.Equal(1, system.LastSourceCount);
+
+        system.Update(0.3f);
+        Assert.Equal(2, system.LastSourceCount);
+    }
+
+    [Fact]
+    public void GravityFieldSystem_ReadsSourcePositionsEveryTick()
+    {
+        var root = new GameRoot();
+        var world = new World("Gravity");
+        root.Worlds.Add(world);
+        root.SelectWorld(world);
+        root.WorldManager.ReconcileAll();
+
+        var planet = new Element("Planet");
+        planet.AddComponent(new GravitySourceComponent { Mu = 1000f, SurfaceRadius = 10f });
+        world.AddElement(planet);
+
+        var system = new GravityFieldSystem(root);
+        system.Initialize(root);
+        system.Update(1f / 60f);
+        Assert.InRange(system.Field.SampleAcceleration(new Vector3(10f, 0f, 0f)).X, -10.1f, -9.9f);
+
+        var transform = planet.LocalTransform;
+        transform.Position = new Vector3(100f, 0f, 0f);
+        planet.LocalTransform = transform;
+
+        // Short step: no rescan, but the cached component still reports its
+        // current world position.
+        system.Update(0.01f);
+        Assert.InRange(system.Field.SampleAcceleration(new Vector3(110f, 0f, 0f)).X, -10.1f, -9.9f);
     }
 
     private static OrbitalState CircularState(double radius)

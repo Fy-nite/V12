@@ -47,7 +47,13 @@ public sealed class NovaV2InputHandler
         // games can bind their own actions instead of the named channels.
         ForwardGamepad(inputService);
 
-        if (inputService.UiCapturesPointer || inputService.UiCapturesKeyboard)
+        // A captured pointer belongs to gameplay. While the cursor is hidden
+        // the screen-space UI can still report a stale hover/focus flag, and
+        // letting that swallow relative look makes the camera dead on some
+        // frames. Menus release capture before they expect the pointer back.
+        bool uiOwnsInput = !MouseCaptured
+            && (inputService.UiCapturesPointer || inputService.UiCapturesKeyboard);
+        if (uiOwnsInput)
         {
             _accumulatedMouseLook = Vector2.Zero;
             return false;

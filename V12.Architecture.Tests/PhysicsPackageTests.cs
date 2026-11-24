@@ -1,8 +1,10 @@
 using System;
 using System.Numerics;
+using Assimp;
 using V12.Components;
 using V12.Core;
 using V12.Core.Interfaces.Physics;
+using V12.Core.Interfaces.Renderer;
 using V12.Gravity;
 using V12.Physics;
 using V12.Physics.Extensions;
@@ -199,6 +201,215 @@ public sealed class PhysicsPackageTests
         Assert.InRange(rider.LinearVelocity.X, 4f, 6f);
         Assert.True(rider.Position.X > 8f,
             $"rider was left behind by the platform: x={rider.Position.X:F2}");
+    }
+
+    [Fact]
+    public void CapsuleDimensions_UseTotalHeight()
+    {
+        var (radius, segment) = BepuShapeFactory.CapsuleDimensions(
+            new Vector3(0.6f, 1.8f, 0.6f));
+
+        Assert.Equal(0.3f, radius, 3);
+        Assert.Equal(1.2f, segment, 3);
+        Assert.Equal(1.8f, segment + radius * 2f, 3);
+    }
+
+    [Fact]
+    public void CharacterCapsule_RestsAtItsRequestedTotalHeight()
+    {
+        using var service = CreateService();
+        service.Gravity = new Vector3(0f, -10f, 0f);
+        var backend = (IPhysicsBackend)service;
+
+        // Floor top is at y = 0.
+        backend.CreateBody(new PhysicsBodyDesc(
+            new Vector3(0f, -0.5f, 0f),
+            Quaternion.Identity,
+            MeshShape.Box,
+            new Vector3(20f, 1f, 20f),
+            mass: 1f,
+            type: PhysicsBodyType.Kinematic,
+            canSleep: false));
+
+        var character = backend.CreateBody(new PhysicsBodyDesc(
+            new Vector3(0f, 5f, 0f),
+            Quaternion.Identity,
+            MeshShape.Capsule,
+            new Vector3(0.6f, 1.8f, 0.6f),
+            mass: 1f,
+            type: PhysicsBodyType.Character,
+            canSleep: false));
+
+        for (int i = 0; i < 300; i++)
+            service.Step(1f / 60f);
+
+        // A 1.8-unit capsule resting on the floor has its centre at 0.9.
+        // The old shape was 2.4 tall, so it settled at 1.2 and the ground
+        // probe (height / 2 + 0.15) stopped above the floor.
+        Assert.InRange(character.Position.Y, 0.85f, 1.0f);
+        Assert.True(character.IsOnFloor,
+            $"character was not grounded; y={character.Position.Y:F3}");
+    }
+
+    [Fact]
+    public void DestroyBody_RemovesTheBodyFromTheSimulation()
+    {
+        using var service = CreateService();
+        var backend = (IPhysicsBackend)service;
+        var body = (BepuPhysicsBody)CreateBody(backend, Vector3.Zero);
+        var handle = body.Handle;
+
+        Assert.True(service.Simulation!.Bodies.BodyExists(handle));
+        backend.DestroyBody(body);
+        Assert.False(service.Simulation.Bodies.BodyExists(handle));
+    }
+
+    [Fact]
+    public void StaticBody_UsesBepuStatics()
+    {
+        using var service = CreateService();
+        var backend = (IPhysicsBackend)service;
+
+        var body = (BepuStaticBody)backend.CreateBody(new PhysicsBodyDesc(
+            Vector3.Zero,
+            Quaternion.Identity,
+            MeshShape.Box,
+            Vector3.One,
+            mass: 1f,
+            type: PhysicsBodyType.Static));
+
+        Assert.True(service.Simulation!.Statics.StaticExists(body.Handle));
+
+        backend.MoveKinematic(body, new Vector3(1f, 0f, 0f));
+        Assert.Equal(new Vector3(1f, 0f, 0f), body.Position);
+
+        backend.DestroyBody(body);
+        Assert.False(service.Simulation.Statics.StaticExists(body.Handle));
+    }
+
+    [Fact]
+    public void CustomCollider_UsesTheMeshPayload()
+    {
+        using var service = CreateService();
+        var backend = (IPhysicsBackend)service;
+        var mesh = new OffsetCubeMesh(new Vector3(5f, 0f, 0f));
+
+        backend.CreateBody(new PhysicsBodyDesc(
+            Vector3.Zero,
+            Quaternion.Identity,
+            MeshShape.Custom,
+            Vector3.One,
+            mass: 1f,
+            type: PhysicsBodyType.Static)
+        {
+            Mesh = mesh,
+        });
+
+        // The fallback box would sit at the origin; this ray only hits if the
+        // custom triangle mesh was passed through to the backend.
+        bool hit = backend.Raycast(new V12.Core.Interfaces.Physics.Ray
+        {
+            Origin = new Vector3(5f, 5f, 0f),
+            Direction = new Vector3(0f, -1f, 0f),
+            MaxDistance = 20f,
+        }, out var rayHit);
+
+        Assert.True(hit, "the custom mesh collider was not hit at all");
+        Assert.NotNull(rayHit.Body);
+        // Either face of the offset cube proves the mesh payload was used; the
+        // fallback 1-unit box at the origin would not be hit by this ray.
+        Assert.True(rayHit.Distance is >= 4.4f and <= 5.6f,
+            $"expected a hit on the offset mesh, got {rayHit.Distance:F3}");
+    }
+
+    [Fact]
+    public void Trigger_RaisesEnterExitAndDoesNotBlock()
+    {
+        using var service = CreateService();
+        service.Gravity = new Vector3(0f, -10f, 0f);
+        var backend = (IPhysicsBackend)service;
+
+        var trigger = backend.CreateBody(new PhysicsBodyDesc(
+            Vector3.Zero,
+            Quaternion.Identity,
+            MeshShape.Box,
+            new Vector3(4f, 1f, 4f),
+            mass: 1f,
+            type: PhysicsBodyType.Static,
+            isTrigger: true));
+
+        var faller = backend.CreateBody(new PhysicsBodyDesc(
+            new Vector3(0f, 2f, 0f),
+            Quaternion.Identity,
+            MeshShape.Box,
+            Vector3.One,
+            mass: 1f,
+            type: PhysicsBodyType.Dynamic,
+            canSleep: false));
+
+        int enters = 0, exits = 0;
+        IPhysicsBody? enteredTrigger = null;
+        IPhysicsBody? enteredOther = null;
+        service.TriggerEnter += (t, o) =>
+        {
+            enters++;
+            enteredTrigger = t;
+            enteredOther = o;
+        };
+        service.TriggerExit += (_, _) => exits++;
+
+        for (int i = 0; i < 120; i++)
+            service.Step(1f / 60f);
+
+        Assert.Equal(1, enters);
+        Assert.Same(trigger, enteredTrigger);
+        Assert.Same(faller, enteredOther);
+        Assert.True(exits >= 1);
+        Assert.True(faller.Position.Y < -1f,
+            $"the trigger blocked the falling body; y={faller.Position.Y:F3}");
+    }
+
+    private sealed class OffsetCubeMesh : ComponentBase, IMeshRenderable
+    {
+        private readonly double[] _points;
+        private readonly uint[] _indices;
+        private readonly Material _material = new();
+
+        public OffsetCubeMesh(Vector3 offset)
+        {
+            var corners = new[]
+            {
+                new Vector3(-0.5f, -0.5f, -0.5f),
+                new Vector3(0.5f, -0.5f, -0.5f),
+                new Vector3(0.5f, 0.5f, -0.5f),
+                new Vector3(-0.5f, 0.5f, -0.5f),
+                new Vector3(-0.5f, -0.5f, 0.5f),
+                new Vector3(0.5f, -0.5f, 0.5f),
+                new Vector3(0.5f, 0.5f, 0.5f),
+                new Vector3(-0.5f, 0.5f, 0.5f),
+            };
+            _points = new double[corners.Length * 3];
+            for (int i = 0; i < corners.Length; i++)
+            {
+                var p = corners[i] + offset;
+                _points[i * 3] = p.X;
+                _points[i * 3 + 1] = p.Y;
+                _points[i * 3 + 2] = p.Z;
+            }
+            _indices = new uint[]
+            {
+                0, 2, 1, 0, 3, 2, 4, 5, 6, 4, 6, 7,
+                0, 1, 5, 0, 5, 4, 2, 3, 7, 2, 7, 6,
+                1, 2, 6, 1, 6, 5, 0, 4, 7, 0, 7, 3,
+            };
+        }
+
+        public RenderType RenderType => RenderType.Mesh;
+        public double[] MeshPoints => _points;
+        public uint[] Indices => _indices;
+        public Material Material => _material;
+        public bool IsWorldLocked => true;
+        public Matrix4x4 WorldTransform => Matrix4x4.Identity;
     }
 
     private static PhysicsService CreateService()

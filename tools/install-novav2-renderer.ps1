@@ -65,11 +65,13 @@ $godotArgs = @(
 
 & $Godot @godotArgs
 $exportExit = $LASTEXITCODE
-if ($null -ne $exportExit -and $exportExit -ne 0) {
-    throw "Godot export failed with exit code $exportExit."
-}
 if (-not (Test-Path $exePath)) {
-    throw "Godot export did not produce the expected host: $exePath"
+    throw "Godot export did not produce the expected host: $exePath (exit $exportExit)."
+}
+if ($null -ne $exportExit -and $exportExit -ne 0) {
+    # Godot can return a nonzero exit for warnings after a complete export.
+    # The produced host is the authority here; only a missing exe is fatal.
+    Write-Warning "Godot export returned exit code $exportExit, but $exePath exists; continuing."
 }
 
 # Godot can leave a full-size .tmp beside the host when an export is

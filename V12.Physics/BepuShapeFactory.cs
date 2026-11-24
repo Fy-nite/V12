@@ -18,7 +18,10 @@ internal static class BepuShapeFactory
             case MeshShape.Sphere:
                 return simulation.Shapes.Add(new Sphere(Half(size.X)));
             case MeshShape.Capsule:
-                return simulation.Shapes.Add(new Capsule(Half(size.X), size.Y));
+            {
+                var (radius, segment) = CapsuleDimensions(size);
+                return simulation.Shapes.Add(new Capsule(radius, segment));
+            }
             case MeshShape.Cylinder:
                 return simulation.Shapes.Add(new Cylinder(Half(size.X), size.Y));
             case MeshShape.Plane:
@@ -59,4 +62,20 @@ internal static class BepuShapeFactory
     }
 
     private static float Half(float diameter) => MathF.Max(diameter * 0.5f, 0.001f);
+
+    /// <summary>
+    /// V12 colliders describe a capsule by its total height. Bepu's
+    /// <see cref="Capsule"/> constructor takes the length of the internal line
+    /// segment, so the two hemispherical caps (<c>2 * radius</c>) have to be
+    /// removed. The radius is clamped to half the height to match
+    /// <c>MeshComponent</c>'s capsule mesh, which does the same for squat capsules.
+    /// </summary>
+    internal static (float Radius, float Segment) CapsuleDimensions(Vector3 size)
+    {
+        float height = MathF.Max(size.Y, 0.001f);
+        float diameter = size.Z > 0f ? MathF.Min(size.X, size.Z) : size.X;
+        float radius = MathF.Min(Half(diameter), height * 0.5f);
+        float segment = MathF.Max(height - radius * 2f, 0.001f);
+        return (radius, segment);
+    }
 }

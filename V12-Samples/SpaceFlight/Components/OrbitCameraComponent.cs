@@ -2,6 +2,7 @@ using System;
 using System.Numerics;
 using V12.Basic.Components;
 using V12.Components;
+using V12.Core;
 using V12.Core.Core.Interfaces;
 using V12.Core.Interfaces.Renderer;
 
@@ -15,10 +16,11 @@ public enum CameraViewMode
 
 /// <summary>
 /// Slow orbit around the planet or a chase camera that can be panned and
-/// tilted around the ship with the arrow keys. The camera element also owns
-/// the <see cref="CameraComponent"/>; this component only writes its pose.
+/// tilted around the ship with the arrow keys or a captured mouse. The camera
+/// element also owns the <see cref="CameraComponent"/>; this component only
+/// writes its pose.
 /// </summary>
-public sealed class OrbitCameraComponent : ScriptableComponent
+public sealed class OrbitCameraComponent : ScriptableComponent, IFloatingOriginAware
 {
     public float Radius { get; set; } = 1250f;
     public float Height { get; set; } = 520f;
@@ -62,6 +64,21 @@ public sealed class OrbitCameraComponent : ScriptableComponent
     public float FollowZoomSpeed { get; set; } = 320f;
     public float MinFollowDistance { get; set; } = 60f;
     public float MaxFollowDistance { get; set; } = 900f;
+
+    /// <summary>Radians of chase-camera turn per pixel of captured mouse
+    /// travel. The sample feeds raw host deltas, not the clamped action axes,
+    /// so a fast sweep keeps its full distance.</summary>
+    public float MouseOrbitSensitivity { get; set; } = 0.0025f;
+
+    /// <summary>Multiplier applied to the cinematic orbit's radius and height.
+    /// Wheel zoom keeps the same framing instead of editing the authored
+    /// Radius/Height pair.</summary>
+    public float OrbitZoom { get; private set; } = 1f;
+    public float MinOrbitZoom { get; set; } = 0.35f;
+    public float MaxOrbitZoom { get; set; } = 3f;
+
+    /// <summary>One mouse-wheel notch scales the distance by this factor.</summary>
+    private const float WheelZoomStep = 0.88f;
 
     private float _angle = MathF.PI / 2f;
     private double _lastOrbitRealTime = -1;
@@ -152,6 +169,54 @@ public sealed class OrbitCameraComponent : ScriptableComponent
         }
     }
 
+    /// <summary>
+    /// Apply captured mouse look to the chase orbit. Called once per rendered
+    /// frame, so the turn does not depend on the simulation time scale.
+    /// </summary>
+    public void LookFollow(Vector2 delta)
+    {
+        if (Mode != CameraViewMode.Follow || delta.LengthSquared() < 1e-8f)
+            return;
+
+        FollowYaw -= delta.X * MouseOrbitSensitivity;
+        // Keep yaw in a tight range so long play sessions do not lose float
+        // precision in the sine/cosine that build the orbit direction.
+        FollowYaw = MathF.IEEERemainder(FollowYaw, MathF.Tau);
+        // Host mouse deltas are screen-space: +Y is down. Raising the camera
+        // (increasing pitch) looks down at the ship, so mouse-down must add
+        // pitch and mouse-up must subtract it.
+        FollowPitch = Math.Clamp(
+            FollowPitch + delta.Y * MouseOrbitSensitivity,
+            -1.35f,
+            1.35f);
+    }
+
+    /// <summary>Zoom the chase camera in or out by mouse-wheel notches.
+    /// Positive notches move in.</summary>
+    public void ZoomFollow(float notches)
+    {
+        if (Mode != CameraViewMode.Follow || MathF.Abs(notches) < 1e-4f)
+            return;
+
+        FollowDistance = Math.Clamp(
+            FollowDistance * MathF.Pow(WheelZoomStep, notches),
+            MinFollowDistance,
+            MaxFollowDistance);
+    }
+
+    /// <summary>Zoom the cinematic planet orbit by mouse-wheel notches.
+    /// Positive notches move in.</summary>
+    public void ZoomOrbit(float notches)
+    {
+        if (Mode != CameraViewMode.Orbit || MathF.Abs(notches) < 1e-4f)
+            return;
+
+        OrbitZoom = Math.Clamp(
+            OrbitZoom * MathF.Pow(WheelZoomStep, notches),
+            MinOrbitZoom,
+            MaxOrbitZoom);
+    }
+
     public override void Update(float deltaTime)
     {
         if (Mode == CameraViewMode.Follow && FollowTarget != null)
@@ -203,6 +268,9 @@ public sealed class OrbitCameraComponent : ScriptableComponent
             }
         }
 
+        radius *= OrbitZoom;
+        height *= OrbitZoom;
+
         var orbitPosition = new Vector3(
             MathF.Cos(_angle) * radius,
             height,
@@ -211,6 +279,9 @@ public sealed class OrbitCameraComponent : ScriptableComponent
         if (Owner != null)
             Owner.LocalTransform = LookAt(orbitPosition, orbitTarget);
     }
+
+    /// <summary>The fallback look target lives in world space, so it follows the bubble.</summary>
+    public void OnOriginShift(Vector3 delta) => Target -= delta;
 
     /// <summary>Build a camera TRS whose -Z axis points at <paramref name="target"/>.</summary>
     public static TRS LookAt(Vector3 eye, Vector3 target)

@@ -16,6 +16,9 @@ namespace SpaceFlight.Components;
 /// planet currently dominates its local gravity. Switching planets changes the
 /// conic's centre, radius and mu, so the visible ring follows the body the ship
 /// is actually orbiting. Unbound states hide the ribbon.
+///
+/// Geometry is local to the element; the transform carries the body centre, so
+/// a moving planet does not force a vertex rebuild.
 /// </summary>
 public sealed class OrbitPathMesh : ComponentBase, IMeshRenderable
 {
@@ -35,7 +38,6 @@ public sealed class OrbitPathMesh : ComponentBase, IMeshRenderable
     private double _lastSemiMajorAxis;
     private double _lastEccentricity;
     private GravitySourceComponent? _lastBody;
-    private Vector3 _lastCenter;
 
     public OrbitPathMesh()
     {
@@ -59,8 +61,8 @@ public sealed class OrbitPathMesh : ComponentBase, IMeshRenderable
     {
         if (state.IsBound && state.Eccentricity < 1 && state.SemiMajorAxis > 0)
         {
-            BuildFor(state, center);
-            _lastCenter = center;
+            ApplyCenter(center);
+            BuildFor(state);
         }
     }
 
@@ -93,22 +95,35 @@ public sealed class OrbitPathMesh : ComponentBase, IMeshRenderable
             return;
         }
 
+        // Geometry is built around the origin; the element is moved to the
+        // body's centre. Rebuilding on centre drift rebuilt the whole tube on
+        // every refresh, because the planets are always moving.
+        ApplyCenter(center);
+
         bool changed = !_hasState
             || !ReferenceEquals(localBody, _lastBody)
-            || Vector3.DistanceSquared(center, _lastCenter) > 1f
             || Math.Abs(state.SemiMajorAxis - _lastSemiMajorAxis) > Math.Abs(_lastSemiMajorAxis) * 1e-3
             || Math.Abs(state.Eccentricity - _lastEccentricity) > 1e-4;
 
         if (changed)
-            BuildFor(state, center);
+            BuildFor(state);
 
         _lastBody = localBody;
-        _lastCenter = center;
     }
 
-    private void BuildFor(OrbitalState state, Vector3 pathCenter)
+    private void ApplyCenter(Vector3 center)
     {
-        int segments = Math.Max(512, Segments);
+        if (Owner == null)
+            return;
+
+        var transform = Owner.LocalTransform;
+        transform.Position = center;
+        Owner.LocalTransform = transform;
+    }
+
+    private void BuildFor(OrbitalState state)
+    {
+        int segments = Math.Max(32, Segments);
         var normal = state.OrbitNormal;
         var periapsis = state.EccentricityVector;
         var periapsisDir = periapsis.Length > 1e-6 ? periapsis.Normalized() : state.Position.Normalized();
@@ -163,9 +178,9 @@ public sealed class OrbitPathMesh : ComponentBase, IMeshRenderable
                            + binormal * (tubeRadius * Math.Sin(angle));
                 var point = center + offset;
 
-                points[p++] = pathCenter.X + point.X;
-                points[p++] = pathCenter.Y + point.Y;
-                points[p++] = pathCenter.Z + point.Z;
+                points[p++] = point.X;
+                points[p++] = point.Y;
+                points[p++] = point.Z;
             }
         }
 

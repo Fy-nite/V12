@@ -7,6 +7,86 @@ All notable engine and tooling changes. The gameplay-facing rules live in
 
 ### Added
 
+- Double-precision floating origin for worlds. `WorldOffset`, `World.Origin`,
+  `World.GlobalPositionOf` and `World.RebaseOrigin` keep a local float bubble
+  and a global double offset; `IFloatingOriginAware` lets components move
+  cached world-space state with the bubble. `PhysicsBodyComponent` shifts its
+  backend body, and `FloatingOriginComponent` re-centres the world around an
+  anchor every 2,000 units. `V12-Samples/SpaceFlight` puts one on the ship, so
+  the renderer and BEPU see local coordinates while telemetry and MCP report
+  the continuous global position. `SceneIntrospection` exposes the world
+  `origin` and per-element `globalPosition`; MCP `get_element`/`find_elements`
+  show both. Saves and network sync do not carry the origin yet, and real-scale
+  surfaces still need camera-relative terrain chunks.
+- Live scene introspection (`V12.Core.Introspection`). `GameRoot.Introspection`
+  exposes `CaptureSnapshot()` (a flat, parent-linked read of every loaded world
+  and its component properties) and an `Enqueue`/`DrainCommands` queue that
+  applies scene edits at the tick boundary. Mutations route through
+  `World.AddElement`, `IWorldElement.AddComponent` and `LocalTransform`, so
+  `DirtyTracker` and replication still see them. Writes to a
+  `WorldAuthority.Remote` world are rejected. Commands are idempotent by
+  `RequestId`, carry `Actor` for attribution, return the previous value or
+  transform for undo, and are kept in a bounded journal
+  (`RecentJournal`) that doubles as a replay script on the fixed-step clock.
+  Synthetic input (`SceneOp.SendInput`) is tagged `Meta["source"]="introspection"`.
+  `WorldMLSerializer.IsExcludedProperty` is now public so live reads use the
+  same "authoritative state" definition as saves (mesh/material payloads are
+  never serialized into a snapshot).
+  Commands drain at the start of `GameRoot.FixedUpdate`, and from `GameRoot.Update`
+  while the simulation is paused, so a paused clock does not block editing.
+- `SceneIntrospection.RequestSnapshotAsync` answers snapshots on the tick thread,
+  so any number of threads can read and write at once without touching live
+  components. `CaptureSnapshot` stays the tick-thread fast path.
+  `ElementSnapshot.Depth` was added so reads can be depth-limited.
+- The module system is a first-class engine feature (see `Docs/MODULES.md`):
+  `IV12Module` plus `ModuleContext` (root, command line, assembly/module paths,
+  per-module data directory under local app data, logger), dependency ordering
+  with missing-dependency and cycle rejection, per-module `ModuleInfo`
+  diagnostics and `GameRoot.Modules.Describe()`, and one host entry point,
+  `GameRoot.Modules.EnableFromArgs(args, baseDir)`, handling `--modules [dir]`,
+  `--module <dll>` and `--no-modules`. Assemblies load through
+  `GamepackLoader.AssemblyLoader` so they share the engine's load context, are
+  skipped when already present by name (a modules folder may also hold
+  dependencies), and dispose in reverse start order from `GameRoot.Shutdown`.
+  Nothing loads by default. Modules are the trusted-code half of mods; content
+  and components stay in game paks. Module state is exposed at
+  `GET /v1/modules` and the `list_modules` MCP tool.
+- Mod paks: a `.v12pak` with `module.json` at the root is a mod. `IModHost` and
+  `PakModHost` (in `V12.Pak`) validate `apiVersion` and dependencies, load the
+  pak through the normal pipeline (worlds, assets, scripts, DLLs), start any
+  gamepaks it contributed, and feed its assemblies to `ModuleHost` so
+  `IV12Module` code starts as well. `--mods`, `--mod <pak>`, `--disable-mod <id>`
+  and `--no-mods`; disabled ids persist in
+  `%LOCALAPPDATA%/V12/<exe>/mods.json`. `vcsdk pack` stages `module.json`
+  automatically, so one command builds content paks and mods. Mod state is
+  exposed at `GET /v1/mods` and the `list_mods` MCP tool. See
+  `Docs/MODULES.md`.
+- `V12.MCP.Probe`, a loadable probe module for the introspection surface:
+  loopback HTTP with `GET /v1/health|worlds|snapshot|journal|receipts/{id}` and
+  `POST /v1/commands`, bearer-token auth, `--mcp-readonly`, ephemeral ports, and
+  a per-process handshake file at `%TEMP%/v12-mcp/probe-<pid>.json`. It uses a
+  `TcpListener`-based HTTP/1.1 server instead of `HttpListener` (needs a URL ACL
+  on Windows when non-elevated) or Kestrel (needs the ASP.NET shared framework
+  a Godot game does not ship). NovaV2 loads it with `--mcp` from `modules/`, or
+  any module with `--module <path>`. The probe also serves `GET /v1/element/{id}`
+  and an `active` filter on `/v1/snapshot`.
+- `V12.MCP`, a stdio MCP server over the probe. Read tools: `probe_status`,
+  `list_worlds`, `get_tree`, `get_element`, `find_elements`, `get_journal`,
+  `get_receipt`. Write tools: `set_transform`, `set_active`, `set_property`,
+  `spawn_element`, `despawn_element`, `attach_component`, `detach_component`,
+  `send_input`, `set_simulation`. It never references `V12-Engine`; it is a JSON
+  adapter configured with `V12_MCP_URL` and `V12_MCP_TOKEN`, so engine DTO
+  changes do not force a tool rebuild. See `Docs/MCP.md`.
+- `IPhysicsTriggerEvents` and real Bepu statics. `PhysicsBodyType.Static` now
+  creates a `Simulation.Statics` collidable instead of an immovable kinematic
+  body, and trigger colliders suppress contact response and raise
+  `TriggerEnter`/`TriggerExit` from the game thread after a step. Overlap is
+  tested against broadphase bounds, so keep trigger volumes simple.
+- `PhysicsBodyDesc.Mesh` carries the triangle payload for
+  `MeshShape.Custom` colliders. `PhysicsLocomotionSystem` supplies the element's
+  `MeshComponent` (or another mesh renderable), so a custom collider is no
+  longer silently replaced by a box. Custom-mesh inertia stays a box
+  approximation.
 - NovaV2 hot reload for `--game` project folders. `--hot-reload` compiles the
   project's C# sources into a collectible assembly before the first world parse,
   watches scripts and the WorldML file, swaps the live gamepak generation, and
@@ -262,6 +342,37 @@ All notable engine and tooling changes. The gameplay-facing rules live in
 
 ### Changed
 
+- `vcsdk build -r <id>` prefers an installed renderer whose folder name matches
+  the requested id over a legacy install whose `renderer.json` merely claims
+  that id. `~/.purr/renderers/nova` still declares `id: novav2` and sorted ahead
+  of the fresh `novav2` export, so packages silently shipped the stale host.
+- `tools/install-novav2-renderer.ps1` finishes when Godot returns a nonzero
+  exit code but still produced the host executable. Godot reports warnings as
+  exit 1 after a complete export, which previously aborted the script before
+  it wrote `renderer.json`.
+- `NovaV2InputHandler` keeps publishing relative mouse look while the pointer
+  is captured even if a screen-space UI still reports pointer or keyboard
+  capture. A hidden cursor cannot own a hover, so the stale flags were dropping
+  look frames. Menus release capture before they use the pointer.
+- `V12-Samples/SpaceFlight` camera and attitude controls: entering the chase
+  camera captures the pointer (either `C` or a mouse button from the cinematic
+  orbit view) so mouse look works immediately, and returning to the orbit view
+  releases it. The mouse wheel zooms the chase camera or the cinematic orbit
+  view, and `Q`/`E` now roll the hull instead of zooming. Mouse look reads the
+  host's raw relative travel directly instead of through an `InputActionMap`
+  axis, whose [-1, 1] clamp collapsed a real sweep into a single tiny step;
+  `SpaceFlightInputComponent` now registers as an `IInputHandler` for that.
+  Pitch follows the screen direction (mouse up looks up).
+  The component logs whether capture is available and when it is captured or
+  released, which makes a host without `IMouseCapture` obvious.
+  `ProgradeAttitudeComponent.ManualRotate` takes a roll input, and
+  `OrbitCameraComponent` gains `LookFollow`, `ZoomFollow` and `ZoomOrbit`. The minor planets are scaled 4x through
+  `MinorPlanetScale` so they read as worlds instead of dots, and planet
+  materials default to lit so the Sun stays the only unlit body.
+- `GravityFieldSystem` caches gravity source discovery. The full tree walk now
+  runs only on world structure changes or a slow 0.25 s rescan; every fixed tick
+  reads positions from the cached `GravitySourceComponent`s instead of walking
+  every element in every ticking world.
 - Rewrite `COMMERCIAL-EXCEPTION.md` as a complete licensing document at version
   1.0. It now defines the terms it relies on (`Covered Work`, `Studio`, `Net
   Revenue`, `Calendar Year`), states the relationship to the AGPL instead of
@@ -434,6 +545,52 @@ All notable engine and tooling changes. The gameplay-facing rules live in
 
 ### Fixed
 
+- Element tree consistency. `World.AddElement`/`RemoveElement` and
+  `Element.AddChild`/`RemoveChild` now index and unindex whole subtrees, so
+  `FindElementById` no longer misses live descendants or returns detached ones.
+  `AddChild` detaches from the old parent before attaching (a reparent no longer
+  leaves the element in two children lists), refuses cross-world moves, and
+  refuses cycles. `AddComponent`/`RemoveComponent` lock the element's own world
+  instead of the focused world. `Element.Active` and `ComponentBase.Active` are
+  dirty-tracked, so toggling visibility re-captures the frame.
+- `vcsdk pack`: every dependency DLL from the publish output is staged, not
+  just those whose names avoid the `System.`/`Microsoft.` prefixes. The pack is
+  `--no-self-contained`, so the output never contains the shared framework and
+  the old name filter only dropped real NuGet dependencies
+  (`Microsoft.Extensions.*`, `Microsoft.Data.Sqlite`, `System.Text.Json`, ...).
+  A pak that referenced one of those loaded with the assembly missing even
+  though the game shipped it. `bin/` now mirrors the publish output and only
+  `V12*.dll` stays out, so the renderer's engine copy remains authoritative.
+- `V12.Physics`: capsule colliders now use the requested total height.
+  Bepu's `Capsule.length` is the length of the internal segment, so the old code
+  built a capsule `2 * radius` taller than its visual mesh and its
+  `ColliderComponent.Height`. Capsule characters floated above the floor and the
+  ground probe stopped short of the surface. `BepuShapeFactory` and `BepuInertia`
+  now share one capsule-dimension helper, and `CharacterCapsule_RestsAtItsRequestedTotalHeight`
+  covers the regression.
+- `V12.Physics`: `DestroyBody` disposes the body's shape with
+  `Shapes.RemoveAndDispose` instead of leaking it until the simulation is
+  disposed. The gravity snapshot is refreshed before every substep, so a body
+  that sleeps mid-step cannot make later substeps use another body's gravity
+  scale. Rotation locks and damping now apply before integration, not after.
+- `V12.Physics` helpers: `BepuBodyExtensions.SetMass` honors its mass argument,
+  and `BepuInertia.WithMass` rescales the inverse inertia tensor as well as the
+  inverse mass. A custom `IGravityField` that reports a mismatched source count
+  can no longer make the integrator read past its snapshot.
+- `V12.Gravity`: `OrbitalMechanics` rejects non-finite Stumpff/Newton
+  intermediate values instead of returning a NaN state.
+- `V12.Basic`: `PhysicsLocomotionSystem` passes `ColliderComponent.IsTrigger`
+  through to the backend and honors the legacy `RigidBodyComponent.IsKinematic`
+  flag when `PhysicsBodyComponent.BodyType` is still at its default.
+- SpaceFlight: prograde and retrograde burns use velocity relative to the
+  dominant body, not the ship's world velocity. The predicted-orbit tube now
+  builds local geometry and follows the body with the element transform, so
+  planetary motion no longer rebuilds the whole mesh every refresh. The scene is
+  idempotent on C# hot reload, the time-warp levels match the 8x fixed-step
+  budget, planets are lit while the Sun stays unlit, and navball marker dots
+  face the camera instead of turning edge-on.
+- SpaceFlight: removed the stale `SpaceFlightScene.cs.orig` and
+  `spaceflight-scale.patch` artifacts.
 - SpaceFlight: the ship no longer pole-vaults off a planet on touchdown. The
   visible 28 x 26 x 42 hull now uses a 28-unit sphere contact proxy. A box
   collider caught a leading corner on the curved surface and converted forward

@@ -1,6 +1,7 @@
 using System;
 using V12.Basic.Components;
 using V12.Components;
+using V12.Core;
 using V12.Gravity;
 
 namespace SpaceFlight.Components;
@@ -35,11 +36,14 @@ public sealed class OrbitTelemetryComponent : ScriptableComponent
         var state = OrbitalState.FromVectors(localBody.Mu, position, velocity);
         float altitude = position.Length() - localBody.SurfaceRadius;
 
+        var world = GameRoot.Instance?.GetWorldForElement(Owner!);
+        var global = world?.GlobalPositionOf(Owner!) ?? WorldOffset.Zero;
         Console.WriteLine(
             $"[SpaceFlight] body={localBody.Owner?.Name ?? "?"} " +
             $"alt={altitude,7:F1} speed={velocity.Length(),6:F2} " +
             $"e={state.Eccentricity:F4} a={state.SemiMajorAxis,7:F1} " +
             $"apo={state.Apoapsis,7:F1} peri={state.Periapsis,7:F1} " +
-            $"T={state.Period,6:F1}s");
+            $"T={state.Period,6:F1}s " +
+            $"global=({global.X:F0},{global.Y:F0},{global.Z:F0})");
     }
 }

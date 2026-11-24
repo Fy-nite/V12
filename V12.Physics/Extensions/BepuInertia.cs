@@ -21,7 +21,7 @@ namespace V12.Physics.Extensions
             return shape switch
             {
                 MeshShape.Sphere => new Sphere(Half(size.X)).ComputeInertia(mass),
-                MeshShape.Capsule => new Capsule(Half(size.X), size.Y).ComputeInertia(mass),
+                MeshShape.Capsule => CapsuleInertia(size, mass),
                 MeshShape.Cylinder => new Cylinder(Half(size.X), size.Y).ComputeInertia(mass),
                 MeshShape.Plane => BoxInertia(new Vector3(size.X, 0.1f, size.Z), mass),
                 MeshShape.Box => BoxInertia(size, mass),
@@ -58,13 +58,42 @@ namespace V12.Physics.Extensions
         }
 
         /// <summary>
-        /// Override the inverse mass on an inertia value. Useful when a shape's
-        /// computed tensor is kept but the gameplay mass is authoritative.
+        /// Rescale an inertia value to a new mass. The inverse inertia tensor
+        /// scales with <c>1 / mass</c>, so changing only
+        /// <see cref="BodyInertia.InverseMass"/> would leave the angular response
+        /// at the old mass. A non-positive mass makes the body immovable.
         /// </summary>
         public static BodyInertia WithMass(this BodyInertia inertia, float mass)
         {
-            inertia.InverseMass = mass > 0f ? 1f / mass : 0f;
+            if (mass <= 0f)
+            {
+                inertia.InverseMass = 0f;
+                inertia.InverseInertiaTensor = default;
+                return inertia;
+            }
+
+            float oldInverseMass = inertia.InverseMass;
+            if (oldInverseMass > 0f)
+            {
+                float scale = (1f / oldInverseMass) / mass;
+                var tensor = inertia.InverseInertiaTensor;
+                tensor.XX *= scale;
+                tensor.YX *= scale;
+                tensor.YY *= scale;
+                tensor.ZX *= scale;
+                tensor.ZY *= scale;
+                tensor.ZZ *= scale;
+                inertia.InverseInertiaTensor = tensor;
+            }
+
+            inertia.InverseMass = 1f / mass;
             return inertia;
+        }
+
+        private static BodyInertia CapsuleInertia(Vector3 size, float mass)
+        {
+            var (radius, segment) = BepuShapeFactory.CapsuleDimensions(size);
+            return new Capsule(radius, segment).ComputeInertia(mass);
         }
 
         private static float Half(float diameter) => MathF.Max(diameter * 0.5f, 0.001f);

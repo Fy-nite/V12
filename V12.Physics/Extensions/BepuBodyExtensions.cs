@@ -18,7 +18,7 @@ namespace V12.Physics.Extensions
 
         public static void SetMass(this BodyReference body, float mass, in BodyInertia inertia)
         {
-            body.SetLocalInertia(inertia);
+            body.SetLocalInertia(inertia.WithMass(mass));
             body.Awake = true;
         }
 

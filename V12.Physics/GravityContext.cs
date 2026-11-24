@@ -31,7 +31,11 @@ internal sealed class GravityContext
         int sourceCount = Field?.SourceCount ?? 0;
         if (_sources.Length < sourceCount)
             Array.Resize(ref _sources, Math.Max(sourceCount, 32));
-        SourceCount = Field?.CopySources(_sources) ?? 0;
+
+        // A custom field can report a count that does not match what it copied.
+        // Clamp both ends so AccelerationAt never indexes past the snapshot.
+        int copied = Field?.CopySources(_sources) ?? 0;
+        SourceCount = Math.Clamp(copied, 0, _sources.Length);
 
         var activeSet = simulation.Bodies.ActiveSet;
         int count = activeSet.Count;

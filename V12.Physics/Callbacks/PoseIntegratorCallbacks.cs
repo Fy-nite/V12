@@ -19,7 +19,7 @@ internal struct PoseIntegratorCallbacks : IPoseIntegratorCallbacks
         _gravity = gravity;
     }
 
-    public readonly AngularIntegrationMode AngularIntegrationMode => (AngularIntegrationMode)0;
+    public readonly AngularIntegrationMode AngularIntegrationMode => BepuPhysics.AngularIntegrationMode.Nonconserving;
     public readonly bool AllowSubsteppingForFocusBodies => false;
     public bool AllowSubstepsForUnconstrainedBodies => false;
     public readonly bool IntegrateVelocityForKinematics => false;

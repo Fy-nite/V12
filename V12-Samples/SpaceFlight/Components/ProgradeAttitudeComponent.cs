@@ -25,31 +25,38 @@ public sealed class ProgradeAttitudeComponent : ScriptableComponent
     public float TurnRate { get; set; } = 1.5f;
     public float ManualYawRate { get; set; } = 1.2f;
     public float ManualPitchRate { get; set; } = 1.0f;
+    public float ManualRollRate { get; set; } = 1.6f;
 
     /// <summary>
     /// Rotate the hull directly from stick input. The first manual input drops
     /// the flight-assist hold into Free so the ship keeps the attitude the
     /// player just dialled in instead of snapping back to prograde.
     /// </summary>
-    public void ManualRotate(float yawInput, float pitchInput, float deltaTime)
+    public void ManualRotate(
+        float yawInput, float pitchInput, float rollInput, float deltaTime)
     {
         var body = Owner?.GetComponent<PhysicsBodyComponent>()?.Body;
         if (body == null || deltaTime <= 0f)
             return;
 
-        if (MathF.Abs(yawInput) < 1e-4f && MathF.Abs(pitchInput) < 1e-4f)
+        if (MathF.Abs(yawInput) < 1e-4f
+            && MathF.Abs(pitchInput) < 1e-4f
+            && MathF.Abs(rollInput) < 1e-4f)
             return;
 
         Mode = SpacecraftAttitudeMode.Free;
 
         // Local Y is up, local X is right, local -Z is the nose. Positive
-        // pitch raises the nose; positive yaw input turns it right.
+        // pitch raises the nose; positive yaw input turns it right. Rolling
+        // right lowers the right wing, which is negative around local +Z.
         var yaw = Quaternion.CreateFromAxisAngle(
             Vector3.UnitY, -yawInput * ManualYawRate * deltaTime);
         var pitch = Quaternion.CreateFromAxisAngle(
             Vector3.UnitX, pitchInput * ManualPitchRate * deltaTime);
+        var roll = Quaternion.CreateFromAxisAngle(
+            Vector3.UnitZ, -rollInput * ManualRollRate * deltaTime);
 
-        body.Rotation = Quaternion.Normalize(body.Rotation * yaw * pitch);
+        body.Rotation = Quaternion.Normalize(body.Rotation * yaw * pitch * roll);
         body.AngularVelocity = Vector3.Zero;
     }
 

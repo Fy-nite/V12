@@ -13,13 +13,19 @@ namespace SpaceFlight.Components;
 /// physics, the camera and the telemetry together. The burns are real impulses
 /// on the ship body, so they change the orbit instead of teleporting it.
 /// </summary>
-public sealed class SpaceFlightInputComponent : ScriptableComponent
+public sealed class SpaceFlightInputComponent : ScriptableComponent, IInputHandler, IFloatingOriginAware
 {
-    private static readonly float[] SpeedLevels = { 0.25f, 0.5f, 1f, 2f, 4f, 8f, 16f, 32f,64f,128f };
-    private const int MaxFixedStepsPerFrame = 16;
+    // The engine drops catch-up steps above MaxStepsPerFrame, so a level higher
+    // than that budget would log a warp it cannot actually deliver. Keep the
+    // available levels inside the 8x budget the sample documents.
+    private static readonly float[] SpeedLevels = { 0.25f, 0.5f, 1f, 2f, 4f, 8f };
+    private const int MaxFixedStepsPerFrame = 8;
 
     public Vector3 SpawnPosition { get; set; }
     public Vector3 SpawnVelocity { get; set; }
+    /// <summary>The same source set the telemetry and orbit path use, so a burn
+    /// is measured against the body that dominates the ship's gravity.</summary>
+    public GravityBodySet? Bodies { get; set; }
     public IWorldElement? ResetTarget { get; set; }
     public float ResetMu { get; set; }
     public float ResetRadius { get; set; } = 800f;
@@ -37,6 +43,16 @@ public sealed class SpaceFlightInputComponent : ScriptableComponent
     private double _lastRealTime = -1;
     private bool _wasManual;
     private bool _wasThrusting;
+    private CameraViewMode? _lastCameraMode;
+    private bool _warnedNoMouseCapture;
+    private bool _loggedMouseLook;
+
+    // Raw pointer travel in pixels. Mouse look deliberately bypasses
+    // InputActionMap: that map clamps every axis to [-1, 1], which turns a real
+    // sweep into a single tiny step. The host publishes mouse_dx/mouse_dy only
+    // while the pointer is captured, so this stays quiet when the cursor is up.
+    private readonly object _lookLock = new();
+    private Vector2 _pendingLook;
 
     public override void OnAttach(V12.Core.Core.Interfaces.IWorldElement worldElement)
     {
@@ -52,9 +68,13 @@ public sealed class SpaceFlightInputComponent : ScriptableComponent
         _actions = new InputActionMap { Name = "SpaceFlight" };
         BindDefaults(_actions);
         _actions.Attach(_input);
+        // Raw mouse look is read here, not through the action map, so a real
+        // sweep keeps its magnitude instead of being clamped to one step.
+        _input.RegisterHandler(this);
         Console.WriteLine(
             "[SpaceFlight] controls active: [ ] time, B/N burn, C camera, " +
-            "T attitude, WASD rotate, Space thrust, arrows orbit camera, Q/E zoom, R reset.");
+            "T attitude, WASD rotate, Q/E roll, Space thrust, arrows or " +
+            "mouse orbit camera, wheel zoom, R reset.");
     }
 
     /// <summary>The demo's key bindings, exposed so the sample tests use the same map.</summary>
@@ -68,22 +88,59 @@ public sealed class SpaceFlightInputComponent : ScriptableComponent
         actions.BindButton("AttitudeToggle", InputKey.T);
         actions.BindButton("ResetOrbit", InputKey.R);
 
-        // WASD is the ship's attitude stick. The arrow keys pan and tilt the
-        // chase camera around the ship; Q/E zoom it in and out.
+        // WASD is the ship's attitude stick and Q/E roll it. The arrow keys and
+        // a captured mouse drag pan and tilt the chase camera around the ship;
+        // the wheel zooms the chase or cinematic camera.
         actions.BindVector2("ShipRotate", InputKey.D, InputKey.A, InputKey.W, InputKey.S);
+        actions.BindAxis("ShipRoll", InputKey.E, InputKey.Q);
         actions.BindVector2("CameraOrbit", InputKey.Right, InputKey.Left, InputKey.Up, InputKey.Down);
-        actions.BindAxis("CameraZoom", InputKey.E, InputKey.Q);
+        actions.BindAxis("CameraZoom", "ui_wheel", "");
+        // Either held mouse button enters/realises the chase camera. Left is
+        // the natural drag for many players; right matches the other samples.
+        actions.BindButton("CameraLook", "mouse_right");
+        actions.AddButton("CameraLook", "mouse_left");
         actions.BindButton("Thrust", InputKey.Space);
     }
 
     public override void OnDetach(V12.Core.Core.Interfaces.IWorldElement worldElement)
     {
-        if (_input != null && _actions != null)
-            _actions.Detach(_input);
+        if (_input != null)
+        {
+            _input.UnregisterHandler(this);
+            if (_actions != null)
+                _actions.Detach(_input);
+        }
 
         _actions = null;
         _input = null;
         base.OnDetach(worldElement);
+    }
+
+    /// <summary>Buffers the host's raw relative mouse travel. Input events may
+    /// arrive from another thread, so the buffer is locked.</summary>
+    public void OnInputEvent(InputEvent evt)
+    {
+        if (evt is null || evt.Type != InputEventType.Axis
+            || string.IsNullOrEmpty(evt.Name))
+            return;
+
+        lock (_lookLock)
+        {
+            if (string.Equals(evt.Name, "mouse_dx", StringComparison.OrdinalIgnoreCase))
+                _pendingLook.X += evt.Value;
+            else if (string.Equals(evt.Name, "mouse_dy", StringComparison.OrdinalIgnoreCase))
+                _pendingLook.Y += evt.Value;
+        }
+    }
+
+    private Vector2 TakeMouseLook()
+    {
+        lock (_lookLock)
+        {
+            var look = _pendingLook;
+            _pendingLook = Vector2.Zero;
+            return look;
+        }
     }
 
     public override void Update(float deltaTime)
@@ -103,13 +160,16 @@ public sealed class SpaceFlightInputComponent : ScriptableComponent
 
         float yaw = _actions.GetAxis("ShipRotate_X");
         float pitch = _actions.GetAxis("ShipRotate_Y");
-        bool manual = MathF.Abs(yaw) > 1e-4f || MathF.Abs(pitch) > 1e-4f;
+        float roll = _actions.GetAxis("ShipRoll");
+        bool manual = MathF.Abs(yaw) > 1e-4f
+                   || MathF.Abs(pitch) > 1e-4f
+                   || MathF.Abs(roll) > 1e-4f;
         if (manual)
         {
             if (!_wasManual)
                 Console.WriteLine("[SpaceFlight] manual attitude");
             if (realDelta > 0f)
-                Attitude?.ManualRotate(yaw, pitch, realDelta);
+                Attitude?.ManualRotate(yaw, pitch, roll, realDelta);
         }
         _wasManual = manual;
 
@@ -130,12 +190,79 @@ public sealed class SpaceFlightInputComponent : ScriptableComponent
         if (ThrustPlume != null)
             ThrustPlume.Thrusting = thrusting;
 
-        if (Camera?.Mode == CameraViewMode.Follow && realDelta > 0f)
+        // Drain the raw pointer travel every update, even while the cursor is
+        // free or the cinematic camera is active, so stale motion cannot build
+        // up and jump the chase camera when the pointer is captured again.
+        var mouseLook = TakeMouseLook();
+
+        var mouse = GameRoot.Instance?.MouseCapture;
+        if (mouse == null)
         {
-            Camera.OrbitFollow(
-                _actions.GetVector2("CameraOrbit"),
-                _actions.GetAxis("CameraZoom"),
-                realDelta);
+            if (!_warnedNoMouseCapture)
+            {
+                _warnedNoMouseCapture = true;
+                Console.WriteLine(
+                    "[SpaceFlight] mouse capture service unavailable; " +
+                    "use the arrow keys to orbit the camera.");
+            }
+        }
+        else if (Camera != null)
+        {
+            // Entering the chase camera captures the pointer, leaving it hands
+            // the cursor back. C is enough to start mouse look; the cinematic
+            // orbit view never steals the cursor.
+            var mode = Camera.Mode;
+            if (_lastCameraMode != mode)
+            {
+                bool capture = mode == CameraViewMode.Follow;
+                mouse.SetCaptured(capture);
+                Console.WriteLine(
+                    $"[SpaceFlight] mouse {(capture ? "captured" : "released")}");
+                _lastCameraMode = mode;
+            }
+
+            // A mouse button is the shortcut from the orbit view, and
+            // re-captures after the host's Escape fallback released the pointer
+            // while the chase camera stayed active.
+            if (_actions.GetButtonDown("CameraLook"))
+            {
+                if (Camera.Mode == CameraViewMode.Orbit)
+                    ToggleCamera();
+                mouse.SetCaptured(true);
+            }
+
+            if (mouse.IsCaptured)
+            {
+                if (!_loggedMouseLook && mouseLook.LengthSquared() > 1e-8f)
+                {
+                    _loggedMouseLook = true;
+                    Console.WriteLine(
+                        "[SpaceFlight] mouse look active " +
+                        $"({mouseLook.X:F1}, {mouseLook.Y:F1} px)");
+                }
+                Camera.LookFollow(mouseLook);
+            }
+        }
+
+        // Wheel zoom is discrete: one notch is one step, so it does not get
+        // stretched by the simulation time scale. Arrow-key orbit still runs
+        // on real frame time.
+        float wheel = _actions.GetAxis("CameraZoom");
+        if (Camera != null)
+        {
+            if (Camera.Mode == CameraViewMode.Follow)
+            {
+                if (realDelta > 0f)
+                {
+                    Camera.OrbitFollow(
+                        _actions.GetVector2("CameraOrbit"), 0f, realDelta);
+                }
+                Camera.ZoomFollow(wheel);
+            }
+            else
+            {
+                Camera.ZoomOrbit(wheel);
+            }
         }
     }
 
@@ -151,6 +278,12 @@ public sealed class SpaceFlightInputComponent : ScriptableComponent
 
         var forward = Vector3.Transform(-Vector3.UnitZ, body.Rotation);
         body.AddImpulse(forward * (ThrustAcceleration * body.Mass * deltaTime));
+    }
+
+    /// <summary>The spawn fallback is a world-space point; keep it in the bubble frame.</summary>
+    public void OnOriginShift(Vector3 delta)
+    {
+        SpawnPosition -= delta;
     }
 
     /// <summary>Step the simulation speed up or down and return the new scale.</summary>
@@ -198,7 +331,15 @@ public sealed class SpaceFlightInputComponent : ScriptableComponent
         var body = Owner?.GetComponent<PhysicsBodyComponent>()?.Body;
         if (body == null) return false;
 
-        var velocity = body.LinearVelocity;
+        // A world velocity includes the planet's own track velocity. Burning
+        // along it is only accurate while the local orbit happens to line up
+        // with that track; subtracting the dominant body's velocity keeps the
+        // impulse tangent to the orbit the telemetry is reporting.
+        var localBody = Bodies?.FindDominant(body.Position);
+        var frameVelocity = Bodies?.VelocityOf(localBody)
+            ?? ResetTarget?.GetComponent<PlanetOrbitComponent>()?.LinearVelocity
+            ?? Vector3.Zero;
+        var velocity = body.LinearVelocity - frameVelocity;
         if (velocity.LengthSquared() < 1e-4f) return false;
 
         float deltaV = direction > 0 ? BoostDeltaV : -BrakeDeltaV;

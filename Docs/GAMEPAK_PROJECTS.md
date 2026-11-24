@@ -195,6 +195,7 @@ root props, or simply use the Purr feed as above.
 ```
 stage/
   manifest.json              optional; generated when absent
+  module.json                optional; makes this pak a mod
   worlds/{World}/world.xml
   worlds/{World}/templates/*.xml
   assets/**                  textures, meshes, audio, ...
@@ -204,6 +205,10 @@ stage/
   scripts/*.ct               Contract entrypoints
   dependencies/*.v12pak      dependency paks
 ```
+
+A `module.json` in the project root is staged automatically and turns the pak
+into a mod (loadable from `mods/`, with optional `IV12Module` code). See
+[`MODULES.md`](MODULES.md) for the manifest fields and the `--mods` switches.
 
 Without a `manifest.json`, the packer scans the directory:
 
@@ -218,9 +223,13 @@ Without a `manifest.json`, the packer scans the directory:
 | `dependencies/*.v12pak` | `Dependencies` |
 
 `vcsdk pack` adds the built assembly to `Paks` and first-party
-`ProjectReference` DLLs to `paks/`; third-party NuGet DLLs go to `bin/`. Engine
-assemblies (`V12*.dll`) are never packed, so the renderer's copy stays
-authoritative.
+`ProjectReference` DLLs to `paks/`. Every other dependency DLL in the publish
+output goes to `bin/`, including packages whose names start with `System.` or
+`Microsoft.`; the pack is framework-dependent (`--no-self-contained`), so the
+shared framework is never in that output and there is nothing to filter out. A
+pak may depend on any NuGet package; the only assemblies kept out are engine
+(`V12*.dll`) ones, because the renderer's copy must stay authoritative and a
+second copy would break type identity for components and gamepaks.
 
 ### Manifest keys
 

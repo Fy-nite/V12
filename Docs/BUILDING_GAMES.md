@@ -232,6 +232,32 @@ For a pure point-gravity scene, zero the uniform field once:
 gameRoot.PhysicsBackend!.Gravity = Vector3.Zero;
 ```
 
+### Statics and triggers
+
+`PhysicsBodyType.Static` creates a real Bepu static collidable. It participates
+in raycasts and contact solving, can be pose-updated, but never integrates.
+
+A `ColliderComponent` with `IsTrigger = true` creates an overlap-only body. The
+Bepu backend suppresses contact response and raises trigger events on the game
+thread after each step:
+
+```csharp
+if (gameRoot.PhysicsBackend is IPhysicsTriggerEvents triggers)
+{
+    triggers.TriggerEnter += (trigger, other) => { /* entered */ };
+    triggers.TriggerExit += (trigger, other) => { /* exited */ };
+}
+```
+
+The trigger body is always the first argument. Overlap is tested against the
+collider's broadphase bounds, so use a simple volume for gameplay triggers
+rather than an exact contact shape.
+
+Custom colliders carry their mesh through `PhysicsBodyDesc.Mesh`;
+`PhysicsLocomotionSystem` fills it from the element's mesh component. The
+backend uses the triangle mesh for collision but a box approximation for
+inertia.
+
 Vessels should be root elements with a `ColliderComponent`, a
 `RigidBodyComponent` and a `PhysicsBodyComponent`. A `LocomotionComponent`
 owns XZ velocity and would overwrite orbital motion; leave it off a vessel, or

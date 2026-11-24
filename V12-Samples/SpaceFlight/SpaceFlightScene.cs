@@ -20,12 +20,12 @@ namespace SpaceFlight;
 /// </summary>
 public static class SpaceFlightScene
 {
-    // Visual scale is roughly 1:6000 relative to the EcoVR working planet in
-    // Docs/EcoVR-Planet-Design-Doc.docx (2,400 km radius, 1g). A 400-unit
-    // planet and 600-unit orbit stay inside float32's comfortable range and
-    // give a ~74 s orbit that is easy to watch. The full-scale planet needs the
-    // double-precision world / floating-origin layer described in the doc;
-    // V12.Gravity already keeps the orbital maths in double.
+    // Visual scale: a 9,400-unit planet and a 10,900-unit parking orbit stay
+    // inside float32's comfortable range and give a ~243 s orbit. The EcoVR
+    // working planet in Docs/EcoVR-Planet-Design-Doc.docx is 2,400 km radius at
+    // 1 g; the full-scale version needs the double-precision world /
+    // floating-origin layer described there. V12.Gravity already keeps the
+    // orbital maths in double.
     public const float PlanetRadius = 9400f;
     public const float SurfaceGravity = 9.81f;
     public const float ParkingAltitude = 1500f;
@@ -33,6 +33,12 @@ public static class SpaceFlightScene
 
     public const float SunRadius = 9099f;
     public const float SunSurfaceGravity = 20f;
+
+    // The minor planets use a visual boost instead of literal relative sizes so
+    // they read as worlds rather than dots when the chase camera visits them.
+    // Earth stays at PlanetRadius because the ship orbit, parking altitude and
+    // camera framing are tuned around it.
+    public const float MinorPlanetScale = 4f;
 
     // Multiplies every heliocentric distance. Planet sizes are untouched.
     public const float DistanceScale = 30f;
@@ -90,6 +96,18 @@ public static class SpaceFlightScene
             root.PhysicsBackend.Gravity = Vector3.Zero;
 
         var world = root.CreateWorld("SpaceFlight");
+
+        // C# hot reload re-runs OnStart on the live root. CreateWorld returns the
+        // existing world, so building again would duplicate the Sun, planets and
+        // ship on top of the running scene. A full restart is required to pick up
+        // changed scene constants; the alternative is a world clear that destroys
+        // the old physics bodies, which the engine does not expose yet.
+        if (world.Root.Any(e => e.Name == "Sun"))
+        {
+            Console.WriteLine("[SpaceFlight] scene already built; skipping hot-reload rebuild");
+            return;
+        }
+
         var gravityBodies = new GravityBodySet();
 
         // The nebula is painted on an equirectangular 4096x2048 panorama (pulled
@@ -123,7 +141,7 @@ public static class SpaceFlightScene
             Bus = AudioSourceBus.Music,
         });
         world.AddElement(music);
-        var sun = new Element("Sun");
+        var sun = new Element("SunLight");
         sun.SetRotation(-38f, -32f, 0f);
         sun.AddComponent(new GenericLightComponent
         {
@@ -197,7 +215,7 @@ public static class SpaceFlightScene
         AddOrbitingPlanet(
             world,
             "Mercury",
-            new PlanetProfile("Mercury", 100f, 5f),
+            new PlanetProfile("Mercury", 100f * MinorPlanetScale, 5f),
             MercuryOrbit,
             new Vector3(0.52f, 0.49f, 0.45f),
             null,
@@ -207,7 +225,7 @@ public static class SpaceFlightScene
         AddOrbitingPlanet(
             world,
             "Venus",
-            new PlanetProfile("Venus", 160f, 4.5f),
+            new PlanetProfile("Venus", 160f * MinorPlanetScale, 4.5f),
             VenusOrbit,
             new Vector3(0.80f, 0.68f, 0.42f),
             null,
@@ -217,7 +235,7 @@ public static class SpaceFlightScene
         AddOrbitingPlanet(
             world,
             "Mars",
-            new PlanetProfile("Mars", 280f, 3.71f),
+            new PlanetProfile("Mars", 280f * MinorPlanetScale, 3.71f),
             MarsOrbit,
             new Vector3(0.62f, 0.28f, 0.16f),
             "v12://Assets/2k_mars.jpg",
@@ -227,17 +245,18 @@ public static class SpaceFlightScene
         AddOrbitingPlanet(
             world,
             "Jupiter",
-            new PlanetProfile("Jupiter", 500f, 5f),
+            new PlanetProfile("Jupiter", 500f * MinorPlanetScale, 5f),
             JupiterOrbit,
             new Vector3(0.68f, 0.54f, 0.38f),
             "v12://Assets/2k_jupiter.jpg",
             gravityBodies,
             SunMu);
 
+        var saturnRadius = 420f * MinorPlanetScale;
         var saturn = AddOrbitingPlanet(
             world,
             "Saturn",
-            new PlanetProfile("Saturn", 420f, 3f),
+            new PlanetProfile("Saturn", saturnRadius, 3f),
             SaturnOrbit,
             new Vector3(0.72f, 0.64f, 0.46f),
             "v12://Assets/2k_saturn.jpg",
@@ -246,12 +265,12 @@ public static class SpaceFlightScene
         var saturnTransform = saturn.LocalTransform;
         saturnTransform.Rotation = Quaternion.CreateFromAxisAngle(Vector3.UnitZ, 0.24f);
         saturn.LocalTransform = saturnTransform;
-        AddSaturnRing(saturn, 420f);
+        AddSaturnRing(saturn, saturnRadius);
 
         AddOrbitingPlanet(
             world,
             "Uranus",
-            new PlanetProfile("Uranus", 240f, 2f),
+            new PlanetProfile("Uranus", 240f * MinorPlanetScale, 2f),
             UranusOrbit,
             new Vector3(0.52f, 0.74f, 0.78f),
             "v12://Assets/2k_uranus.jpg",
@@ -261,7 +280,7 @@ public static class SpaceFlightScene
         AddOrbitingPlanet(
             world,
             "Neptune",
-            new PlanetProfile("Neptune", 240f, 2.5f),
+            new PlanetProfile("Neptune", 240f * MinorPlanetScale, 2.5f),
             NeptuneOrbit,
             new Vector3(0.20f, 0.36f, 0.78f),
             "v12://Assets/2k_neptune.jpg",
@@ -328,12 +347,28 @@ public static class SpaceFlightScene
         {
             SpawnPosition = ShipStart,
             SpawnVelocity = ShipStartVelocity,
+            Bodies = gravityBodies,
             ResetTarget = earth,
             ResetMu = Mu,
             ResetRadius = OrbitRadius,
             Attitude = attitude,
         };
         ship.AddComponent(input);
+
+        // Keep the float bubble centred on the ship. The true position lives in
+        // World.Origin (double); the ship, planets and camera stay in local
+        // coordinates, so GPU/BEPU precision does not depend on the 270k-unit
+        // distance to the Sun.
+        var floatingOrigin = new FloatingOriginComponent
+        {
+            Anchor = ship,
+            Threshold = 2000f,
+        };
+        floatingOrigin.Rebased += (world, origin, delta) =>
+            Console.WriteLine(
+                $"[SpaceFlight] origin rebase #{world.OriginRebaseCount}: " +
+                $"global={origin} localShift={delta.Length():F1}");
+        ship.AddComponent(floatingOrigin);
 
         // The GLB is Y-up and about 3.26 units tall. Rotate +Y onto local -Z
         // (the nose), scale it to roughly the 48-unit hull, and recenter it
@@ -588,7 +623,8 @@ public static class SpaceFlightScene
             $"T={docPlanet.OrbitalPeriod() / 60:F1} min");
         Console.WriteLine(
             "[SpaceFlight] controls: [ slower  ] faster  B prograde  N retrograde  " +
-            "C camera  T attitude  WASD rotate  Space thrust  arrows orbit camera  Q/E zoom  R reset");
+            "C camera  T attitude  WASD rotate  Q/E roll  Space thrust  " +
+            "arrows or mouse orbit camera  wheel zoom  R reset");
     }
 
     private static void AddSaturnRing(Element planet, float radius)
@@ -687,10 +723,10 @@ public static class SpaceFlightScene
         Vector3 position,
         Vector3 colour,
         string? texture = null,
-        float roughness = 0f,
+        float roughness = 0.85f,
         bool gravity = true,
         GravityBodySet? bodies = null,
-        bool unlit = true)
+        bool unlit = false)
     {
         // Solid sphere collider plus gravity. Impacts are pure physics now; the
         // ship's derived mass and the contact material decide the response.
@@ -777,6 +813,13 @@ public static class SpaceFlightScene
         marker.AddChild(ring);
 
         var dot = new Element(name + "Dot");
+        // The marker is rotated +90 degrees around X so the torus ring faces the
+        // camera. The quad is already in the XY plane, so compensate locally or
+        // the centre dot turns edge-on and disappears.
+        dot.LocalTransform = new TRS
+        {
+            Rotation = Quaternion.CreateFromAxisAngle(Vector3.UnitX, -MathF.PI / 2f),
+        };
         var dotMesh = new QuadMesh(name + "Dot")
         {
             Size = new Vector2(0.034f, 0.034f),

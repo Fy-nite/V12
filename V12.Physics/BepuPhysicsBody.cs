@@ -14,6 +14,10 @@ internal sealed class BepuPhysicsBody : IPhysicsBody
     public Simulation Simulation { get; }
     public long Id { get; }
 
+    /// <summary>The shape created for this body. Each body owns its shape, so
+    /// <see cref="PhysicsService"/> disposes it when the body is destroyed.</summary>
+    public TypedIndex ShapeIndex => _collidable.Shape;
+
     public bool IsDynamic { get; set; } = true;
     public bool IsCharacterController { get; set; }
     public bool IsOnFloor { get; set; }
@@ -86,7 +90,10 @@ internal sealed class BepuPhysicsBody : IPhysicsBody
             if (!IsDynamic) return;
 
             var b = Simulation.Bodies[Handle];
-            b.SetLocalInertia(BepuInertia.ForShape(_shape, _size, _mass));
+            var inertia = BepuInertia.ForShape(_shape, _size, _mass);
+            if (LockRotation)
+                inertia.InverseInertiaTensor = default;
+            b.SetLocalInertia(inertia);
             b.Awake = true;
         }
     }
@@ -123,9 +130,18 @@ internal sealed class BepuPhysicsBody : IPhysicsBody
 
         IsDynamic = !kinematic;
         var pose = new RigidPose(Position, Rotation);
-        var description = kinematic
-            ? BodyDescription.CreateKinematic(pose, _collidable, _activity)
-            : BodyDescription.CreateDynamic(pose, BepuInertia.ForShape(_shape, _size, _mass), _collidable, _activity);
+        BodyDescription description;
+        if (kinematic)
+        {
+            description = BodyDescription.CreateKinematic(pose, _collidable, _activity);
+        }
+        else
+        {
+            var inertia = BepuInertia.ForShape(_shape, _size, _mass);
+            if (LockRotation)
+                inertia.InverseInertiaTensor = default;
+            description = BodyDescription.CreateDynamic(pose, inertia, _collidable, _activity);
+        }
         Simulation.Bodies.ApplyDescription(Handle, description);
     }
 

@@ -1,0 +1,23 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    Loadable MCP probe. This assembly is intentionally NOT referenced by the
+    engine, NovaV2 or any game project: a host loads it from a plugins folder
+    only when the user asks for it (see GameRoot.Modules). It references the
+    engine so it can talk to the live GameRoot, which keeps the engine free of
+    transport and tooling code.
+  -->
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <AssemblyName>V12.MCP.Probe</AssemblyName>
+    <RootNamespace>V12.MCP.Probe</RootNamespace>
+    <IsPackable>false</IsPackable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="$(V12EngineProject)" />
+  </ItemGroup>
+
+</Project>

@@ -13,7 +13,10 @@ falling around Earth while Earth orbits the Sun, all driven by point-mass
 - A Sun at the origin with the `2k_sun.jpg` texture.
 - Eight planets in solar order, all starting on the +X line and then orbiting
   at their own rates: Mercury, Venus, Earth, Mars, Jupiter, Saturn, Uranus and
-  Neptune. Their orbit rings are drawn around the Sun.
+  Neptune. Their orbit rings are drawn around the Sun. The minor planets use
+  `MinorPlanetScale` (4x) so they read as worlds rather than dots at this
+  compressed orbit scale; Earth keeps its authored size because the ship orbit
+  and camera framing are tuned around it.
 - A 9,400-unit textured Earth at 270,000 units from the Sun, with a 10,900-unit
   circular ship orbit drawn as a live cyan tube.
 - A textured 2,560-unit Moon orbiting Earth at 75,200 units. Its SOI is large
@@ -29,8 +32,9 @@ falling around Earth while Earth orbits the Sun, all driven by point-mass
   against a kinematic planet, because the contact impulse scales with it.
 - A cinematic camera that frames the planet the ship is currently orbiting
   (scaled for Mars/Luna), or chases the ship with a user-owned orbit angle.
-  Arrow keys pan/tilt and `Q`/`E` zoom; the chase camera follows only the
-  ship's position and does not rotate with the gravity field.
+  Arrow keys and the captured mouse pan/tilt the chase camera; the mouse wheel
+  zooms either camera. The chase camera follows only the ship's position and
+  does not rotate with the gravity field.
 - A small navball fixed in the lower-right corner: a ship-relative horizon and
   meridian cross, with cyan prograde and red retrograde markers.
 - Looped background music and a held-space thruster loop through the engine
@@ -49,10 +53,12 @@ falling around Earth while Earth orbits the Sun, all driven by point-mass
 | `N` | Retrograde impulse burn, lowers the orbit |
 | `W` / `S` | Pitch the ship up / down |
 | `A` / `D` | Yaw the ship left / right |
+| `Q` / `E` | Roll the ship left / right |
 | `Space` | Hold for continuous nose thrust |
 | `C` | Toggle the planet orbit view and the ship chase camera |
 | Arrow keys | Pan and tilt the chase camera around the ship |
-| `Q` / `E` | Zoom the chase camera out / in |
+| Left / right mouse | Enter the chase camera if needed and capture the pointer |
+| Mouse wheel | Zoom the chase camera, or the cinematic orbit view |
 | `T` | Cycle attitude: prograde, retrograde, tidal lock, free |
 | `R` | Reset the ship to its starting circular orbit |
 
@@ -64,8 +70,9 @@ velocity vector, so it is also an attitude-control tool.
 Time scale changes the engine fixed clock, so physics and planet motion speed
 up. The fixed-step budget stays at 8 steps per rendered frame; raising it with
 warp made high speeds run hundreds of physics steps per frame and collapse the
-frame rate. Camera pan/tilt, zoom and manual `WASD` rotation use real frame time
-instead of simulation time, so they stay responsive at any warp level.
+frame rate. Camera pan/tilt, mouse look and manual `WASD`/`Q`/`E` rotation use
+real frame time instead of simulation time, so they stay responsive at any warp
+level. Wheel zoom is a discrete notch step, so warp cannot stretch it either.
 
 `B` and `N` are real impulses on the ship body. The live orbit tube is computed
 from `V12.Gravity.OrbitalState` around the body whose sphere of influence
@@ -80,18 +87,33 @@ orientation fixed in inertial space while the camera orbits the planet. The
 sample runs a kinematic prograde attitude hold by default; `T` cycles
 Prograde, Retrograde, TidalLock and Free. The rocket GLB gives the hull a real
 nose and tail silhouette. This is a flight-assist visual, not a torque/RCS
-simulation; `WASD` is a direct attitude command, not reaction-wheel physics.
+simulation; `WASD` and `Q`/`E` are direct attitude commands for pitch, yaw and
+roll, not reaction-wheel physics.
 
 The navball is ship-relative, not camera-relative: its centre is the nose, the
-bone cross is the local planet's horizon and vertical, and the cyan/red rings
-are the velocity and anti-velocity directions. Switch the attitude to `Free`
-and the cross drifts as the hull holds its inertial attitude. These are
-screen-space HUD curves and markers, not a physical globe, so the camera can
-orbit without moving the instrument.
+cross is the orbital-plane horizon and vertical, and the cyan/red rings are the
+velocity and anti-velocity directions. Switch the attitude to `Free` and the
+cross drifts as the hull holds its inertial attitude. These are screen-space HUD
+curves and markers, not a physical globe, so the camera can orbit without moving
+the instrument.
 
 The chase camera captures its starting direction when you press `C`, then
 freezes it in world space. The ship's changing velocity and the gravity field
-no longer drag the camera around; only your arrow input changes the view angle.
+no longer drag the camera around; only your arrow input or the mouse changes
+the view angle. Entering the chase camera also captures the pointer, so mouse
+look works immediately. `C` back to the cinematic view releases it, and the
+host's Escape fallback always gives the cursor back. Either mouse button from
+the orbit view is a shortcut that enters the chase camera and captures at the
+same time.
+
+The mouse wheel zooms the chase camera in and out one notch at a time. In the
+cinematic planet-orbit view it scales the framing instead, so scrolling still
+does something before you switch to the chase camera. `Q`/`E` now roll the hull
+left and right and drop the attitude hold into `Free`, just like `WASD`.
+
+Mouse look consumes the host's raw relative travel rather than a normalised
+action axis, so a fast sweep turns the camera the full distance instead of
+being capped to one small step per frame.
 
 `B` and `N` use small default impulses so a single tap does not throw the ship
 out of the demo orbit. At the 10,900-unit reference orbit the circular speed is
@@ -105,16 +127,34 @@ speed the contact solves against agree; before that, Earth's 78 m/s orbital
 motion was missing from the contact frame and a "10 m/s" landing was a 78 m/s
 scrape.
 
-The numbers are deliberately scaled for float32 comfort and a watchable
-~243-second orbit. The same code path works at real scale; the constants live
-at the top of `SpaceFlightScene.cs`.
+The numbers are deliberately scaled for a watchable ~243-second orbit. The
+floating-origin bubble below keeps the ship in local float space even though
+its global position is around 280,000 units from the Sun.
+
+## Floating origin
+
+The scene is Sun-centred, so the ship's true position is hundreds of thousands
+of units from the origin. `FloatingOriginComponent` on the ship keeps a local
+float bubble: when the ship drifts more than 2,000 units from the bubble
+centre, every root transform, physics body, orbit centre and the camera move
+by `-shipPosition`, and `World.Origin` absorbs the shift in double precision.
+
+Global position is `World.Origin + local transform`. The renderer and BEPU only
+ever see the local bubble; telemetry reports `global=(x,y,z)` and MCP
+`get_element` returns both `local`/`worldTransform` and `globalPosition`.
+
+The origin is runtime-only today. Saves and network sync still carry local
+transforms, so a reload or a remote client must restore the same origin before
+those transforms mean global positions. Real-scale planet surfaces also still
+need camera-relative terrain chunks; this bubble fixes the ship and near-field
+coordinates first.
 
 `Docs/EcoVR-Planet-Design-Doc.docx` targets a 2,400 km, 1g working planet
 (`PlanetProfile.EcoVRWorking`), which gives a low-orbit speed of about
 4.85 km/s and a 52-minute period. The sample logs those doc numbers at startup
-alongside its visual-scale numbers. A full-scale planet needs the
-double-precision world / floating-origin layer described in the doc; the orbit
-maths already run in double through `V12.Gravity`.
+alongside its visual-scale numbers. The double-precision origin layer is now in
+place; a full-scale planet still needs camera-relative terrain chunks on top of
+it. The orbit maths already run in double through `V12.Gravity`.
 
 ## Skybox
 

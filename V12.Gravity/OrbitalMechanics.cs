@@ -160,6 +160,12 @@ namespace V12.Gravity
                 double z = alpha * chi * chi;
                 var (c, s) = Stumpff(z);
 
+                // Stumpff overflows for very large hyperbolic z. Treat that as
+                // a failed Newton step and let the numeric fallback answer,
+                // rather than returning a NaN state to gameplay.
+                if (!double.IsFinite(c) || !double.IsFinite(s))
+                    break;
+
                 double chi2 = chi * chi;
                 double chi3 = chi2 * chi;
                 double r0Term = r0DotV0 / sqrtMu;
@@ -173,11 +179,17 @@ namespace V12.Gravity
                                   + (1 - alpha * r0) * chi2 * c
                                   + r0;
 
+                if (!double.IsFinite(residual) || !double.IsFinite(derivative))
+                    break;
+
                 if (Math.Abs(derivative) < 1e-15)
                     break;
 
                 double correction = residual / derivative;
                 chi -= correction;
+
+                if (!double.IsFinite(chi))
+                    break;
 
                 if (Math.Abs(correction) <= 1e-12 * Math.Max(1.0, Math.Abs(chi)))
                 {

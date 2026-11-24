@@ -1,5 +1,6 @@
 using Godot;
 using V12.Core;
+using V12.Pak;
 
 namespace NovaV2.Hosting;
 
@@ -28,6 +29,7 @@ public partial class NovaV2HostNode : Node3D
     [Export] public bool StartXR { get; set; }
 
     private NovaV2Runtime? _runtime;
+    private PakModHost? _mods;
 
     public NovaV2Runtime? Runtime => _runtime;
     public GameRoot? Root => _runtime?.Root;
@@ -62,6 +64,7 @@ public partial class NovaV2HostNode : Node3D
         }
 
         _runtime = new NovaV2Runtime(this, root, BuildOptions());
+        LoadModules(root);
     }
 
     public override void _EnterTree()
@@ -107,6 +110,11 @@ public partial class NovaV2HostNode : Node3D
 
     public override void _ExitTree()
     {
+        // Modules own process-wide resources (listeners, threads). Stop them
+        // before the runtime tears the renderer down.
+        Root?.Modules.DisposeAll();
+        _mods?.Dispose();
+        _mods = null;
         _runtime?.Dispose();
         _runtime = null;
     }
@@ -118,6 +126,69 @@ public partial class NovaV2HostNode : Node3D
         _runtime = new NovaV2Runtime(this, root, options ?? BuildOptions());
         return _runtime;
     }
+
+    /// <summary>
+    /// Loads opt-in modules. Nothing is loaded unless the user asked with
+    /// <c>--module</c>, <c>--modules</c> or <c>--mcp</c>, so a game launched
+    /// without a module flag carries no tooling. <c>--mcp</c> is sugar for
+    /// "load V12.MCP.Probe.dll from the plugins folder".
+    /// </summary>
+    private void LoadModules(GameRoot root)
+    {
+        string[] args = AllCommandLineArgs();
+
+        // Mod paks are ordinary .v12pak files with a module.json; content, scripts
+        // and module code all arrive through the normal pak pipeline.
+        _mods = new PakModHost(root);
+        root.Registry.RegisterOrReplace("Mods", _mods);
+        _mods.EnableFromArgs(args, AppContext.BaseDirectory);
+
+        // --modules, --module and --no-modules are handled by the engine.
+        root.Modules.EnableFromArgs(args, AppContext.BaseDirectory);
+
+        if (!CommandLineFlag("--mcp") || CommandLineFlag("--no-modules"))
+            return;
+
+        string directory = CommandLineValue("--modules") is { Length: > 0 } configured
+            ? (Path.IsPathRooted(configured) ? configured : Path.Combine(AppContext.BaseDirectory, configured))
+            : Path.Combine(AppContext.BaseDirectory, "modules");
+
+        string? probe = FindProbe(directory);
+        if (probe is null)
+        {
+            GD.PushWarning(
+                "[NovaV2Host] --mcp was passed but V12.MCP.Probe.dll was not found. " +
+                $"Searched '{directory}', '{Path.Combine(AppContext.BaseDirectory, "modules")}' " +
+                $"and '{Path.Combine(AppContext.BaseDirectory, "plugins")}'. Pass --module <path>.");
+            return;
+        }
+
+        root.Modules.Load(probe, args);
+    }
+
+    /// <summary>
+    /// Finds the probe DLL. <c>modules/</c> is the standard folder;
+    /// <c>plugins/</c> is the older name and is still checked so an existing
+    /// setup keeps working.
+    /// </summary>
+    private static string? FindProbe(string preferredDirectory)
+    {
+        string[] candidates =
+        {
+            Path.Combine(preferredDirectory, "V12.MCP.Probe.dll"),
+            Path.Combine(AppContext.BaseDirectory, "modules", "V12.MCP.Probe.dll"),
+            Path.Combine(AppContext.BaseDirectory, "plugins", "V12.MCP.Probe.dll"),
+        };
+
+        foreach (string candidate in candidates)
+            if (File.Exists(candidate)) return candidate;
+
+        return null;
+    }
+
+    /// <summary>Engine and user arguments together, for modules that parse their own switches.</summary>
+    private static string[] AllCommandLineArgs()
+        => OS.GetCmdlineUserArgs().Concat(OS.GetCmdlineArgs()).ToArray();
 
     private NovaV2RuntimeOptions BuildOptions()
     {
@@ -164,6 +235,11 @@ public partial class NovaV2HostNode : Node3D
            && !value.Equals("0", StringComparison.OrdinalIgnoreCase)
            && !value.Equals("false", StringComparison.OrdinalIgnoreCase)
            && !value.Equals("off", StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>True when <paramref name="name"/> appears as a bare switch on the command line.</summary>
+    public static bool CommandLineFlag(string name)
+        => Array.IndexOf(OS.GetCmdlineUserArgs(), name) >= 0
+           || Array.IndexOf(OS.GetCmdlineArgs(), name) >= 0;
 
     /// <summary>
     /// Reads the value following <paramref name="name"/> from the command line.

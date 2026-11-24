@@ -4,11 +4,13 @@ using System.Numerics;
 using SpaceFlight;
 using SpaceFlight.Components;
 using V12.Audio;
+using V12.Basic.Components;
 using V12.Basic.Scene;
 using V12.Components;
 using V12.Core;
 using V12.Core.Audio;
 using V12.Core.Input;
+using V12.Core.Interfaces.Physics;
 using V12.Core.Interfaces.Renderer;
 using V12.Gravity;
 using V12.Gravity.Components;
@@ -46,8 +48,42 @@ public sealed class SpaceFlightSampleTests
         AssertAxis(map, InputKey.Left, "CameraOrbit_X", -1f);
         AssertAxis(map, InputKey.Up, "CameraOrbit_Y", 1f);
         AssertAxis(map, InputKey.Down, "CameraOrbit_Y", -1f);
-        AssertAxis(map, InputKey.E, "CameraZoom", 1f);
-        AssertAxis(map, InputKey.Q, "CameraZoom", -1f);
+        AssertAxis(map, InputKey.E, "ShipRoll", 1f);
+        AssertAxis(map, InputKey.Q, "ShipRoll", -1f);
+
+        // The wheel took over Q/E zoom, and the right mouse button is the
+        // capture/look input for the chase camera.
+        map.OnInputEvent(new InputEvent
+        {
+            Type = InputEventType.Axis,
+            Name = "ui_wheel",
+            Value = 1f,
+        });
+        map.Update(0f);
+        Assert.Equal(1f, map.GetAxis("CameraZoom"), 3);
+
+        map.OnInputEvent(new InputEvent
+        {
+            Type = InputEventType.ButtonDown,
+            Name = "mouse_right",
+        });
+        map.Update(0f);
+        Assert.True(map.GetButtonDown("CameraLook"));
+
+        map.OnInputEvent(new InputEvent
+        {
+            Type = InputEventType.ButtonUp,
+            Name = "mouse_right",
+        });
+        map.Update(0f);
+
+        map.OnInputEvent(new InputEvent
+        {
+            Type = InputEventType.ButtonDown,
+            Name = "mouse_left",
+        });
+        map.Update(0f);
+        Assert.True(map.GetButtonDown("CameraLook"));
     }
 
     [Fact]
@@ -134,6 +170,79 @@ public sealed class SpaceFlightSampleTests
         camera.OrbitFollow(new Vector2(0f, 10f), 10f, 1f);
         Assert.Equal(-1.35f, camera.FollowPitch, 3);
         Assert.Equal(60f, camera.FollowDistance, 3);
+    }
+
+    [Fact]
+    public void MouseLook_OrbitsTheChaseCamera()
+    {
+        var camera = new OrbitCameraComponent
+        {
+            Mode = CameraViewMode.Follow,
+            MouseOrbitSensitivity = 0.1f,
+        };
+
+        camera.LookFollow(new Vector2(1f, 0f));
+        Assert.Equal(-0.1f, camera.FollowYaw, 3);
+
+        camera.LookFollow(new Vector2(0f, 2f));
+        Assert.Equal(0.2f, camera.FollowPitch, 3);
+
+        // The cinematic orbit is not driven by the mouse.
+        camera.Mode = CameraViewMode.Orbit;
+        camera.LookFollow(new Vector2(1f, 1f));
+        Assert.Equal(-0.1f, camera.FollowYaw, 3);
+        Assert.Equal(0.2f, camera.FollowPitch, 3);
+    }
+
+    [Fact]
+    public void WheelZoom_StepsAndClampsBothCameras()
+    {
+        var follow = new OrbitCameraComponent
+        {
+            Mode = CameraViewMode.Follow,
+            FollowDistance = 200f,
+            MinFollowDistance = 60f,
+            MaxFollowDistance = 900f,
+        };
+
+        follow.ZoomFollow(1f);
+        Assert.Equal(176f, follow.FollowDistance, 3);
+        follow.ZoomFollow(-1f);
+        Assert.Equal(200f, follow.FollowDistance, 3);
+        follow.ZoomFollow(-100f);
+        Assert.Equal(900f, follow.FollowDistance, 3);
+        follow.ZoomFollow(100f);
+        Assert.Equal(60f, follow.FollowDistance, 3);
+
+        var orbitElement = new Element("Camera");
+        var orbit = new OrbitCameraComponent
+        {
+            Radius = 1000f,
+            Height = 500f,
+            AngularSpeed = 0f,
+        };
+        orbitElement.AddComponent(orbit);
+
+        orbit.ZoomOrbit(1f);
+        orbit.Update(0f);
+        Assert.Equal(440f, orbitElement.LocalTransform.Position.Y, 3);
+    }
+
+    [Fact]
+    public void ManualRoll_TurnsTheHullAboutItsNoseAxis()
+    {
+        var ship = new Element("Ship");
+        var body = new TestBody();
+        ship.AddComponent(new PhysicsBodyComponent { Body = body });
+
+        var attitude = new ProgradeAttitudeComponent { ManualRollRate = 1f };
+        ship.AddComponent(attitude);
+
+        attitude.ManualRotate(0f, 0f, 1f, 1f);
+
+        Assert.Equal(SpacecraftAttitudeMode.Free, attitude.Mode);
+        var up = Vector3.Transform(Vector3.UnitY, body.Rotation);
+        Assert.True(up.X > 0.8f, $"right roll should tip the hull toward +X, got {up}");
     }
 
     [Fact]
@@ -244,13 +353,19 @@ public sealed class SpaceFlightSampleTests
     [Fact]
     public void OrbitPath_CanBeRecentredOnAnotherPlanet()
     {
+        var element = new Element("OrbitPath");
         var path = new OrbitPathMesh();
+        element.AddComponent(path);
+
         var state = OrbitalState.FromVectors(
             1_000_000f,
             new Vector3(100f, 0f, 0f),
             new Vector3(0f, 0f, 100f));
 
         path.SetState(state, new Vector3(5000f, 0f, 0f));
+
+        // Geometry is local; the element transform carries the new centre.
+        Assert.InRange(element.LocalTransform.Position.X, 4999f, 5001f);
 
         var points = path.MeshPoints;
         Assert.NotEmpty(points);
@@ -263,8 +378,8 @@ public sealed class SpaceFlightSampleTests
             maxX = MathF.Max(maxX, (float)points[i]);
         }
 
-        Assert.True(minX > 4800f, $"path should sit around the new centre, minX={minX}");
-        Assert.True(maxX < 5200f, $"path should sit around the new centre, maxX={maxX}");
+        Assert.True(minX > -150f, $"path should be local to the element, minX={minX}");
+        Assert.True(maxX < 150f, $"path should be local to the element, maxX={maxX}");
     }
 
     [Fact]
@@ -309,6 +424,21 @@ public sealed class SpaceFlightSampleTests
 
         Assert.NotNull(collider);
         Assert.Equal(MeshShape.Sphere, collider!.Shape);
+    }
+
+    [Fact]
+    public void SpaceFlightShip_KeepsTheFloatBubbleCentredOnIt()
+    {
+        var root = new GameRoot();
+        SpaceFlightScene.Build(root);
+
+        var world = root.Worlds.Single(w => w.WorldName == "SpaceFlight");
+        var ship = world.Enumerate().Single(e => e.Name == "Ship");
+        var origin = ship.GetComponent<FloatingOriginComponent>();
+
+        Assert.NotNull(origin);
+        Assert.Same(ship, origin!.Anchor);
+        Assert.Equal(2000f, origin.Threshold, 1);
     }
 
     [Fact]
@@ -368,6 +498,93 @@ public sealed class SpaceFlightSampleTests
         Assert.InRange(channel.Gain, 0.1f, 0.15f);
 
         engine.Dispose();
+    }
+
+    [Fact]
+    public void Burn_UsesVelocityRelativeToTheDominantBody()
+    {
+        var planet = new Element("Planet");
+        var planetSource = new GravitySourceComponent(1_000_000f, 100f);
+        planet.AddComponent(planetSource);
+        var orbit = new PlanetOrbitComponent
+        {
+            Center = Vector3.Zero,
+            Radius = 1f,
+            AngularSpeed = 1f,
+        };
+        planet.AddComponent(orbit);
+        orbit.Update(0f);
+        Assert.Equal(new Vector3(0f, 0f, 1f), orbit.LinearVelocity);
+
+        var bodies = new GravityBodySet();
+        bodies.Add(planetSource);
+
+        var ship = new Element("Ship");
+        var fake = new TestBody
+        {
+            Position = new Vector3(100f, 0f, 0f),
+            LinearVelocity = new Vector3(10f, 0f, 1f),
+            Mass = 2f,
+        };
+        ship.AddComponent(new PhysicsBodyComponent { Body = fake });
+
+        var input = new SpaceFlightInputComponent { Bodies = bodies };
+        ship.AddComponent(input);
+
+        Assert.True(input.Burn(+1));
+
+        // Local prograde is +X. A world-velocity burn would also add a +Z
+        // component from the planet's own track velocity.
+        Assert.InRange(fake.LinearVelocity.X, 10.99f, 11.01f);
+        Assert.InRange(fake.LinearVelocity.Z, 0.99f, 1.01f);
+    }
+
+    [Fact]
+    public void Build_IsIdempotentForHotReload()
+    {
+        var root = new GameRoot();
+
+        SpaceFlightScene.Build(root);
+        SpaceFlightScene.Build(root);
+
+        var world = root.Worlds.Single(w => w.WorldName == "SpaceFlight");
+        Assert.Single(world.Enumerate(), e => e.Name == "Sun");
+        Assert.Single(world.Enumerate(), e => e.Name == "Ship");
+    }
+
+    [Fact]
+    public void PlanetsAreLit_AndTheSunIsUnlit()
+    {
+        var root = new GameRoot();
+        SpaceFlightScene.Build(root);
+
+        var world = root.Worlds.Single(w => w.WorldName == "SpaceFlight");
+        var earth = world.Enumerate().Single(e => e.Name == "Earth");
+        var sun = world.Enumerate().Single(e => e.Name == "Sun");
+
+        Assert.False(earth.GetComponent<MaterialComponent>()!.Unlit);
+        Assert.True(sun.GetComponent<MaterialComponent>()!.Unlit);
+    }
+
+    private sealed class TestBody : IPhysicsBody
+    {
+        public Vector3 Position { get; set; }
+        public Quaternion Rotation { get; set; } = Quaternion.Identity;
+        public Vector3 LinearVelocity { get; set; }
+        public Vector3 AngularVelocity { get; set; }
+        public bool IsDynamic => true;
+        public bool IsCharacterController => false;
+        public bool IsOnFloor => false;
+        public bool LockRotation { get; set; }
+        public float Mass { get; set; } = 1f;
+        public float GravityScale { get; set; } = 1f;
+
+        public void AddForce(Vector3 force) { }
+        public void AddTorque(Vector3 torque) { }
+        public void AddImpulse(Vector3 impulse)
+            => LinearVelocity += impulse / MathF.Max(0.0001f, Mass);
+        public void AddAngularImpulse(Vector3 impulse) { }
+        public void SetKinematic(bool kinematic) { }
     }
 
     private static void AssertTap(InputActionMap map, InputKey key, string action)

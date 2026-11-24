@@ -57,6 +57,10 @@
   <Folder Name="/V12-Engine/">
     <Project Path="V12-Engine/V12.csproj" />
   </Folder>
+  <Folder Name="/V12-MCP/">
+    <Project Path="V12.MCP.Probe/V12.MCP.Probe.csproj" />
+    <Project Path="V12.MCP/V12.MCP.csproj" />
+  </Folder>
   <Folder Name="/V12-Rendering/">
     <Project Path="V12.Rendering/V12.Rendering.csproj" />
   </Folder>

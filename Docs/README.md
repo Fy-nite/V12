@@ -9,7 +9,9 @@ and authoring tools.
 | `BOUNDARY_REFACTOR_PLAN.md` | Staged plan for the V12.Paper / V12.Editor split and cleanup |
 | `WORKING_ON_V12.md` | Checkout, build, test, and contribution workflow |
 | `GAMEPAK_PROJECTS.md` | .NET game paks: component discovery, MSBuild reference keys, pak layout and manifest keys |
+| `MODULES.md` | Module system and mod paks: loadable code, `module.json`, dependencies, diagnostics, host integration |
 | `HOT_RELOAD_NOVAV2.md` | NovaV2 `--game --hot-reload`: live C# compile, world swaps, limits |
+| `MCP.md` | V12 MCP: live scene read/write for MCP clients, the loadable probe, tools, security |
 | `INPUT_SYSTEM.md` | Input events, `InputActionMap`, key bindings, and rebinding |
 | `BUILDING_A_RENDERER.md` | Implementing a backend renderer against V12 packets |
 | `RendererContract.md` | Normative contract between the engine and a renderer |
