@@ -12,6 +12,14 @@ public sealed class NovaV2RuntimeOptions
     public string? PakPath { get; set; }
 
     /// <summary>
+    /// Godot resource path of an embedded pak, for example
+    /// <c>res://MyGame.v12pak</c>. Used when the game ships the archive inside
+    /// its own package (an Android APK, or a pak baked into a desktop pck).
+    /// Takes precedence over <see cref="PakPath"/>.
+    /// </summary>
+    public string? PakResource { get; set; }
+
+    /// <summary>
     /// Directory scanned recursively for <c>.v12shader</c> manifests before the
     /// world loads, so <c>MaterialComponent.ShaderUri</c> resolves on frame one.
     /// </summary>

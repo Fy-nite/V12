@@ -1,0 +1,166 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Physics Playground.
+
+  The bay itself is built by PhysicsPlaygroundLevel on the first tick so the
+  props can be reset and inspected. This file owns the lighting, the player rig
+  and the HUD, which are the parts you want to edit by hand.
+-->
+<World name="PhysicsPlayground">
+	<Element name="Sun">
+		<LocalTransform>
+			<Rotation>-34,-38,0</Rotation>
+		</LocalTransform>
+		<Component type="GenericLightComponent" ColorR="1" ColorG="0.84" ColorB="0.66" Energy="1.35" Type="Directional" Range="40" ShadowEnabled="True" />
+	</Element>
+
+	<Element name="Fill">
+		<LocalTransform>
+			<Rotation>24,132,0</Rotation>
+		</LocalTransform>
+		<Component type="GenericLightComponent" ColorR="0.38" ColorG="0.45" ColorB="0.55" Energy="0.34" Type="Directional" Range="40" ShadowEnabled="False" />
+	</Element>
+
+	<Element name="Environment">
+		<Component type="EnvironmentComponent" Mode="SolidColor" SkyR="0.075" SkyG="0.062" SkyB="0.05" AmbientR="0.20" AmbientG="0.18" AmbientB="0.15" AmbientEnergy="1.15" ShadowsEnabled="True" ShadowDistance="36" ShadowBias="2" ShadowNormalBias="1" ShadowOpacity="1" />
+	</Element>
+
+	<!-- Builds the yard on the first tick. -->
+	<Element name="Playground">
+		<Component type="PhysicsPlaygroundLevel" />
+	</Element>
+
+	<!--
+		The named Player element is the floor rig, because the XR host syncs its
+		origin from this transform. The capsule body is a separate root element so
+		its centre can sit at 0.9 without lifting the headset origin off the floor.
+		The sample controller runs before the motor so it can hand the motor the
+		moving-platform carry velocity for the same tick.
+	-->
+	<Element name="Player">
+		<LocalTransform>
+			<Position>0,0,8</Position>
+		</LocalTransform>
+		<Component type="PhysicsPlaygroundController" />
+		<Component type="PlayerMotorComponent" MoveSpeed="4.2" SprintMultiplier="1.55" JumpSpeed="5.2" EyeHeight="1.6" BodyCenterHeight="0.9" BodyElementName="PlayerBody" Attack="0.22" Decay="0.18" Sustain="0.75" Release="0.28" />
+		<Component type="GrabberComponent" Reach="4.5" XrReach="3" HoldDistance="2.2" RequireGrabbable="True" />
+
+		<Element name="DesktopCamera">
+			<LocalTransform>
+				<Position>0,1.6,0</Position>
+			</LocalTransform>
+			<Component type="CameraComponent" Projection="Perspective" Fov="70" NearClip="0.05" FarClip="160" IsCurrent="True" />
+		</Element>
+
+		<Element name="XRRig">
+			<Component type="XRRootComponent" />
+
+			<Element name="Head">
+				<Component type="XRHeadComponent" />
+			</Element>
+
+			<Element name="LeftHand">
+				<Component type="XRHandComponent" Side="Left" />
+				<Component type="MeshComponent" Shape="Box" Width="0.075" Height="0.055" Depth="0.14" />
+				<Component type="MeshRenderer" MeshTargetName="Mesh" />
+				<Component type="MaterialComponent" R="0.72" G="0.63" B="0.49" A="1" Roughness="0.65" />
+			</Element>
+
+			<Element name="RightHand">
+				<Component type="XRHandComponent" Side="Right" />
+				<Component type="MeshComponent" Shape="Box" Width="0.075" Height="0.055" Depth="0.14" />
+				<Component type="MeshRenderer" MeshTargetName="Mesh" />
+				<Component type="MaterialComponent" R="0.72" G="0.63" B="0.49" A="1" Roughness="0.65" />
+			</Element>
+		</Element>
+	</Element>
+
+	<Element name="PlayerBody">
+		<LocalTransform>
+			<Position>0,0.9,8</Position>
+		</LocalTransform>
+		<Component type="RigidBodyComponent" Mass="1" GravityScale="1" LinearDamping="0" AngularDamping="0" CanSleep="False" />
+		<Component type="LocomotionComponent" MoveSpeed="4.2" JumpStrength="5.2" Gravity="18" Acceleration="38" CanJump="True" UseExternalVelocity="True" />
+		<Component type="ColliderComponent" Shape="Capsule" Width="0.7" Height="1.8" Depth="0.7" />
+		<Component type="PhysicsBodyComponent" BodyType="Dynamic" GravityScale="1" LockRotation="True" />
+		<Component type="MeshComponent" Shape="Capsule" Width="0.7" Height="1.8" Depth="0.7" />
+		<Component type="MeshRenderer" MeshTargetName="Mesh" />
+		<Component type="MaterialComponent" R="0.18" G="0.19" B="0.18" A="1" Roughness="0.88" />
+	</Element>
+
+	<!-- Bottom-left readout. Square, translucent, one accent. -->
+	<Element name="Hud">
+		<Component type="CanvasComponent" ScreenSpace="true" AnchorX="0" AnchorY="0" Priority="10" />
+		<Element name="HudCard">
+			<Component type="RectComponent" Width="390" Height="202" BackgroundColor="#080605e6" CornerRadius="0" />
+			<Element name="HudLayout">
+				<Component type="VLayoutComponent" Spacing="5" Padding="22" />
+
+				<Element name="HudTitle">
+					<Component type="LabelComponent" Text="PHYSICS PLAYGROUND" FontSize="18" />
+					<Component type="UIStyleComponent" Flat="true" StyleHint="title" />
+				</Element>
+				<Element name="HudHint">
+					<Component type="LabelComponent" Text="WASD move  -  Right mouse look" />
+					<Component type="UIStyleComponent" Flat="true" StyleHint="muted" />
+				</Element>
+				<Element name="HudHint2">
+					<Component type="LabelComponent" Text="Left mouse or R grab  -  Backspace reset" />
+					<Component type="UIStyleComponent" Flat="true" StyleHint="muted" />
+				</Element>
+				<Element name="HudScore">
+					<Component type="LabelComponent" Text="BIN 00 / 05" FontSize="16" />
+					<Component type="UIStyleComponent" Flat="true" StyleHint="accent" />
+				</Element>
+				<Element name="HudPrompt">
+					<Component type="LabelComponent" Text="" FontSize="16" />
+					<Component type="UIStyleComponent" Flat="true" StyleHint="title" />
+				</Element>
+				<Element name="HudEvent">
+					<Component type="LabelComponent" Text="" />
+					<Component type="UIStyleComponent" Flat="true" StyleHint="muted" />
+				</Element>
+				<Element name="HudStatus">
+					<Component type="LabelComponent" Text="" />
+					<Component type="UIStyleComponent" Flat="true" StyleHint="muted" />
+				</Element>
+			</Element>
+		</Element>
+	</Element>
+
+	<!--
+		XR wrist readout. The controller parks this above the left hand and
+		billboards it at the headset every tick, so it stays upright and readable
+		instead of inheriting the controller's exact rotation. Hidden on desktop.
+	-->
+	<Element name="WristHud">
+		<Component type="ScaleComponent" ScaleX="0.16" ScaleY="0.0838" ScaleZ="0.16" />
+		<Component type="CanvasComponent" ScreenSpace="false" Width="420" Height="220" Priority="20" Interactive="false" WorldShader="flat" />
+		<Element name="WristSurface">
+			<Component type="RectComponent" Width="420" Height="220" BackgroundColor="#080605ee" CornerRadius="0" />
+			<Element name="WristLayout">
+				<Component type="VLayoutComponent" Spacing="6" Padding="16" />
+				<Element name="WristTitle">
+					<Component type="LabelComponent" Text="BAY 12" FontSize="14" />
+					<Component type="UIStyleComponent" Flat="true" StyleHint="muted" />
+				</Element>
+				<Element name="WristScore">
+					<Component type="LabelComponent" Text="BIN 00 / 05" FontSize="22" />
+					<Component type="UIStyleComponent" Flat="true" StyleHint="accent" />
+				</Element>
+				<Element name="WristPrompt">
+					<Component type="LabelComponent" Text="" FontSize="18" />
+					<Component type="UIStyleComponent" Flat="true" StyleHint="title" />
+				</Element>
+				<Element name="WristEvent">
+					<Component type="LabelComponent" Text="" FontSize="14" />
+					<Component type="UIStyleComponent" Flat="true" StyleHint="muted" />
+				</Element>
+				<Element name="WristStatus">
+					<Component type="LabelComponent" Text="" FontSize="14" />
+					<Component type="UIStyleComponent" Flat="true" StyleHint="muted" />
+				</Element>
+			</Element>
+		</Element>
+	</Element>
+</World>

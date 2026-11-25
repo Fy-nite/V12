@@ -1,4 +1,5 @@
 using System.Numerics;
+using V12.Basic.Player;
 using V12.Components;
 using V12.Components.Renderables;
 using V12.Core;
@@ -12,9 +13,11 @@ namespace MultiplayerDemo;
 /// One controller for desktop and XR.
 ///
 /// Desktop: WASD moves, right mouse captures the pointer, mouse or right stick
-/// looks. XR: the headset owns the view, the left stick moves the rig, and the
-/// same component continues to run through a registry pump so a remote world can
-/// stay non-simulated while the local player still moves.
+/// looks. A client predicts its movement locally and reconciles from host state
+/// acks; the host still owns the replicated body. XR: the headset owns the view,
+/// the left stick moves the rig, and the same component continues to run through
+/// a registry pump so a remote world can stay non-simulated while the local
+/// player still moves.
 /// </summary>
 public sealed class MultiplayerPlayerController : ComponentBase
 {
@@ -23,6 +26,10 @@ public sealed class MultiplayerPlayerController : ComponentBase
     private const float StickLookSpeed = 1.8f;
     private const float TurnSpeed = 2.2f;
     private const float EyeHeight = 1.55f;
+
+    // Prediction bookkeeping. Inputs are kept until the host acknowledges the
+    // sequence, so a late authoritative state can be replayed forward.
+    private const int MaxPendingInputs = 240;
 
     private static readonly bool DebugInput =
         Environment.GetEnvironmentVariable("V12_MP_DEBUG") == "1";
@@ -44,6 +51,22 @@ public sealed class MultiplayerPlayerController : ComponentBase
     private float _yaw;
     private float _pitch;
     private float _debugTimer;
+
+    private readonly MovementEnvelope _envelope = new();
+    private float _lastMoveX;
+    private float _lastMoveZ;
+
+    public float MoveAttack { get; set; } = 0.22f;
+    public float MoveDecay { get; set; } = 0.18f;
+    public float MoveSustain { get; set; } = 0.75f;
+    public float MoveRelease { get; set; } = 0.28f;
+    public float TurnDeadzone { get; set; } = 0.22f;
+
+    private readonly List<PendingInput> _pendingInputs = new();
+    private uint _inputSequence;
+    private uint _lastAckSequence;
+    private bool _predictionSeeded;
+    private Vector3 _predictedPosition;
 
     /// <summary>Diagnostics: number of registry pump ticks received.</summary>
     public int TickCount { get; private set; }
@@ -78,6 +101,19 @@ public sealed class MultiplayerPlayerController : ComponentBase
     {
         _avatar = avatar;
         _remoteAvatar = remote;
+
+        if (remote)
+        {
+            // A new avatar means the host may have restarted the input stream.
+            // Start prediction cleanly from the spawn transform.
+            _predictionSeeded = false;
+            _pendingInputs.Clear();
+            _inputSequence = 0;
+            _lastAckSequence = 0;
+            _envelope.Reset();
+            _lastMoveX = 0f;
+            _lastMoveZ = 0f;
+        }
 
         // The host's own avatar is visible and the local XR hands would
         // otherwise render on top of it. A client hides its remote avatar
@@ -206,9 +242,13 @@ public sealed class MultiplayerPlayerController : ComponentBase
             // rather than the play-space origin so a player standing off-centre
             // does not get swung sideways while turning.
             float turn = _actions.GetAxis("TurnX");
-            if (Math.Abs(turn) > 0.1f && _xrHead is not null)
+            float turnMagnitude = Math.Abs(turn);
+            if (turnMagnitude > TurnDeadzone && _xrHead is not null)
             {
-                float newYaw = _yaw - turn * TurnSpeed * deltaTime;
+                float scaledTurn = (turnMagnitude - TurnDeadzone)
+                    / MathF.Max(0.01f, 1f - TurnDeadzone);
+                float newYaw = _yaw
+                    - MathF.Sign(turn) * scaledTurn * TurnSpeed * deltaTime;
                 var headLocal = _xrHead.LocalTransform.Position;
                 var oldOffset = Vector3.Transform(
                     headLocal,
@@ -270,6 +310,32 @@ public sealed class MultiplayerPlayerController : ComponentBase
         x = Math.Clamp(x, -1f, 1f);
         z = Math.Clamp(z, -1f, 1f);
 
+        bool moving = MathF.Abs(x) > 0.01f || MathF.Abs(z) > 0.01f;
+        if (moving)
+        {
+            _lastMoveX = x;
+            _lastMoveZ = z;
+        }
+
+        _envelope.Attack = MoveAttack;
+        _envelope.Decay = MoveDecay;
+        _envelope.Sustain = MoveSustain;
+        _envelope.Release = MoveRelease;
+        _envelope.Update(deltaTime, moving);
+
+        float envelope = _envelope.Value;
+        if (!moving && envelope > 0.001f)
+        {
+            // Keep the release tail travelling in the last direction.
+            x = _lastMoveX;
+            z = _lastMoveZ;
+        }
+        else if (!moving)
+        {
+            x = 0f;
+            z = 0f;
+        }
+
         if (_remoteAvatar)
         {
             if (_hasXr)
@@ -277,14 +343,16 @@ public sealed class MultiplayerPlayerController : ComponentBase
                 // VR is client-moved for responsiveness. Move the local rig
                 // locally, then send the floor pose so the host places the
                 // replicated body under the headset.
-                MoveLocal(deltaTime, useHeadYaw: true);
-                _bootstrap?.SendInput(BuildCommand(x, z));
+                MoveLocal(deltaTime, useHeadYaw: true, envelope);
+                _bootstrap?.SendInput(
+                    BuildCommand(x, z, deltaTime, NextInputSequence()));
                 return;
             }
 
-            // Desktop remains host-authoritative; follow the replicated pose.
-            _bootstrap?.SendInput(BuildCommand(x, z));
-            FollowAvatar();
+            // Desktop predicts locally and reconciles from PlayerStateAck.
+            // The camera follows the prediction immediately instead of waiting
+            // for the host to echo the move back.
+            PredictAndSendInput(x, z, deltaTime, envelope);
             return;
         }
 
@@ -299,7 +367,7 @@ public sealed class MultiplayerPlayerController : ComponentBase
             {
                 // Host VR: move the local rig with the stick, then let the
                 // tracked pose place the replicated body under the headset.
-                MoveLocal(deltaTime, useHeadYaw: true);
+                MoveLocal(deltaTime, useHeadYaw: true, envelope);
                 if (CaptureRigPose() is { } pose)
                 {
                     avatarComponent?.SetRigPose(pose);
@@ -307,15 +375,87 @@ public sealed class MultiplayerPlayerController : ComponentBase
                 }
             }
 
-            avatarComponent?.SetInput(x, z, _yaw);
+            avatarComponent?.SetInput(x, z, _yaw, envelope);
             FollowAvatar();
             return;
         }
 
-        MoveLocal(deltaTime, useHeadYaw: true);
+        MoveLocal(deltaTime, useHeadYaw: true, envelope);
     }
 
-    private void MoveLocal(float deltaTime, bool useHeadYaw)
+    /// <summary>
+    /// Desktop client movement: run the same deterministic step as the host
+    /// immediately, then send it. The local camera sees no round trip.
+    /// </summary>
+    private void PredictAndSendInput(float moveX, float moveZ, float deltaTime, float envelope)
+    {
+        if (_owner is null || _avatar is null) return;
+
+        if (!_predictionSeeded)
+        {
+            _predictionSeeded = true;
+            var spawn = _avatar.LocalTransform.Position;
+            _predictedPosition = new Vector3(spawn.X, 0f, spawn.Z);
+            _position = _predictedPosition;
+        }
+
+        var (position, rotation) = MultiplayerAvatarComponent.ComputeStep(
+            _predictedPosition, moveX, moveZ, _yaw, deltaTime, envelope);
+        _predictedPosition = position;
+        _position = new Vector3(position.X, 0f, position.Z);
+        _owner.LocalTransform = new TRS(_position, rotation);
+
+        uint sequence = NextInputSequence();
+        _pendingInputs.Add(new PendingInput(sequence, moveX, moveZ, _yaw, deltaTime, envelope));
+        if (_pendingInputs.Count > MaxPendingInputs)
+            _pendingInputs.RemoveAt(0);
+
+        _bootstrap?.SendInput(BuildCommand(moveX, moveZ, deltaTime, sequence));
+    }
+
+    /// <summary>
+    /// Apply a host ack: drop acknowledged inputs, replay the rest from the
+    /// authoritative transform, and adopt the result as the new prediction.
+    /// </summary>
+    internal void ApplyServerState(PlayerStateAck ack)
+    {
+        if (!_remoteAvatar || _hasXr || ack.Sequence == 0) return;
+        if (ack.Sequence < _lastAckSequence) return;
+
+        _lastAckSequence = ack.Sequence;
+        _pendingInputs.RemoveAll(input => input.Sequence <= ack.Sequence);
+
+        var position = new Vector3(ack.Position.X, 0f, ack.Position.Z);
+        foreach (var input in _pendingInputs)
+        {
+            var (next, _) = MultiplayerAvatarComponent.ComputeStep(
+                position, input.MoveX, input.MoveZ, input.Yaw, input.Delta, input.Envelope);
+            position = next;
+        }
+
+        // The replay includes every input the host has not acknowledged yet, so
+        // adopting it should be visually identical to the prediction. A real
+        // correction only appears when the host result actually differs.
+        if (DebugInput)
+        {
+            float dx = _predictedPosition.X - position.X;
+            float dz = _predictedPosition.Z - position.Z;
+            if (MathF.Abs(dx) > 0.01f || MathF.Abs(dz) > 0.01f)
+            {
+                GameRoot.Log?.Information(
+                    "[MultiplayerDemo] reconciled seq={Sequence} pending={Pending} correction=({DX:F3},{DZ:F3})",
+                    ack.Sequence, _pendingInputs.Count, dx, dz);
+            }
+        }
+
+        _predictedPosition = position;
+        _predictionSeeded = true;
+        _position = new Vector3(position.X, 0f, position.Z);
+    }
+
+    private uint NextInputSequence() => unchecked(++_inputSequence);
+
+    private void MoveLocal(float deltaTime, bool useHeadYaw, float envelope)
     {
         if (_owner is null || _actions is null)
             return;
@@ -339,7 +479,7 @@ public sealed class MultiplayerPlayerController : ComponentBase
             if (move.LengthSquared() > 1f)
                 move = Vector3.Normalize(move);
 
-            _position += move * MoveSpeed * deltaTime;
+            _position += move * MoveSpeed * Math.Clamp(envelope, 0f, 1f) * deltaTime;
             _position.X = Math.Clamp(_position.X, -7f, 7f);
             _position.Z = Math.Clamp(_position.Z, -7f, 7f);
         }
@@ -352,13 +492,17 @@ public sealed class MultiplayerPlayerController : ComponentBase
             Quaternion.CreateFromYawPitchRoll(_yaw, 0f, 0f));
     }
 
-    private PlayerInputCommand BuildCommand(float moveX, float moveZ)
+    private PlayerInputCommand BuildCommand(
+        float moveX, float moveZ, float deltaTime = 0f, uint sequence = 0)
     {
         var command = new PlayerInputCommand
         {
+            Sequence = sequence,
+            Delta = deltaTime,
             MoveX = moveX,
             MoveZ = moveZ,
             Yaw = _yaw,
+            Envelope = _envelope.Value,
         };
 
         if (CaptureRigPose() is not { } pose)
@@ -440,4 +584,7 @@ public sealed class MultiplayerPlayerController : ComponentBase
             new Vector3(0f, EyeHeight, 0f),
             Quaternion.CreateFromYawPitchRoll(0f, _pitch, 0f));
     }
+
+    private readonly record struct PendingInput(
+        uint Sequence, float MoveX, float MoveZ, float Yaw, float Delta, float Envelope);
 }

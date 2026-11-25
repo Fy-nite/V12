@@ -133,6 +133,21 @@ actions.BindVector2("Look", "look_right", "look_left", "look_up", "look_down");
 - `BindVector2(action, +X, -X, +Y, -Y)` creates `action_X` and `action_Y`, read
   back with `GetVector2(action)`.
 
+### Delta axes
+
+Mouse and touch hosts publish raw travel in pixels, which can be larger than
+one per frame. A normal axis clamps that to `[-1, 1]` and makes mouse look feel
+sluggish. Use `BindDeltaAxis` for those channels:
+
+```csharp
+actions.BindDeltaAxis("MouseLookX", "mouse_dx", "");
+actions.BindDeltaAxis("MouseLookY", "mouse_dy", "");
+```
+
+A delta axis is still a name-based axis, but its resolved value is not clamped.
+The host should keep sending it every frame, including `0`. Use `BindAxis` for
+sticks, triggers, key pairs and anything that is conceptually a `-1..1` input.
+
 ### Key-based bindings
 
 Use these for direct, host-agnostic key mappings and rebindable controls.

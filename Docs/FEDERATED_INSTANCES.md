@@ -7,6 +7,11 @@
 > This document captures the intended shape of VNode, V12 headless, federated
 > worlds, region ownership, session handoff, and worker processes. It is not a
 > commitment to a single release.
+>
+> **Companion:** [`PEER_HOSTING_AND_AUTHORITY.md`](PEER_HOSTING_AND_AUTHORITY.md)
+> narrows the authority and handoff sections into engine changes, wire fields,
+> and implementation phases. It explicitly keeps peer-hosted worlds and rejects
+> a full simulation mesh.
 
 ## Contents
 

@@ -30,34 +30,25 @@ public partial class Main : Node3D
             GameRoot.ConfigureLogging();
 
         // Run a real game instead of the demo scene:
-        //   --pak <file.v12pak>     packaged game (world + scripts + assets)
+        //   --pak <file.v12pak>     packaged game, or res://MyGame.v12pak
         //   --game <dir>            a V12 project folder, loaded straight from
         //                           its bin output and world file
         //   --world <relative>      world file inside --game (default Scenes/Main.worldml)
         //
-        // With no arguments the host also looks for a pak named after its own
-        // executable, so renaming the binary to "MyGame.exe" and dropping
-        // "MyGame.v12pak" beside it is enough to launch the game.
+        // With no arguments the host looks for a pak named after its own
+        // executable, then any *.v12pak at the package root. The last case is
+        // the Android path: the APK has no writable folder beside its
+        // executable, so the export ships res://MyGame.v12pak instead.
         //
-        // `--game` deliberately wins over that fallback. An exported build ships
-        // a pak beside the exe, and loading it as well would select the pak's
+        // `--game` deliberately wins over the implicit fallback. An exported
+        // build ships a pak, and loading it as well would select the pak's
         // world over the project folder's, leaving --hot-reload watching a world
         // that is not the one on screen.
         string? gameDir = NovaV2HostNode.CommandLineValue("--game");
-        string? pakPath = NovaV2HostNode.CommandLineValue("--pak");
-        if (pakPath is null)
-        {
-            string? executablePak = ResolveExecutablePak();
-            if (executablePak is not null && gameDir is null)
-            {
-                GD.Print($"[NovaV2.Host] Using pak named after the executable: {executablePak}");
-                pakPath = executablePak;
-            }
-            else if (executablePak is not null)
-            {
-                GD.Print($"[NovaV2.Host] --game given; not loading '{executablePak}' beside the executable.");
-            }
-        }
+        string? requestedPak = NovaV2HostNode.CommandLineValue("--pak");
+        PakLocation pak = requestedPak is not null
+            ? ResolvePak(requestedPak)
+            : gameDir is null ? ResolvePak(null) : new PakLocation(null, null);
         string? worldPath = NovaV2HostNode.CommandLineValue("--world");
 
         // XR never reloads the process. The rig exists by default and stays
@@ -70,7 +61,7 @@ public partial class Main : Node3D
         string? xrArgument = NovaV2HostNode.CommandLineValue("--xr-mode")
             ?? NovaV2HostNode.CommandLineValue("--xr");
         bool? xrOn = xrArgument is null ? null : NovaV2HostNode.IsXrOn(xrArgument);
-        bool startXr = xrOn ?? GameRequestsXr(gameDir, pakPath);
+        bool startXr = xrOn ?? GameRequestsXr(gameDir, pak);
         bool xrEnabled = xrOn != false;
 
         var root = new GameRoot();
@@ -104,7 +95,7 @@ public partial class Main : Node3D
         {
             BuildGameWorld(root, gameDir, worldPath, hotReload);
         }
-        else if (pakPath is null)
+        else if (pak.IsEmpty)
         {
             bool viewsDemo = NovaV2HostNode.CommandLineValue("--views-demo") is "1" or "true";
 
@@ -125,7 +116,8 @@ public partial class Main : Node3D
         AddChild(new NovaV2HostNode
         {
             Name = "NovaV2Host",
-            PakPath = pakPath ?? "",
+            PakPath = pak.Path ?? "",
+            PakResource = pak.Resource ?? "",
             // A project folder registers its own shaders before the world
             // loads, so `shader://` URIs resolve on the first frame.
             ShaderDirectory = gameDir is null ? "" : Path.Combine(gameDir, "shaders"),
@@ -399,10 +391,11 @@ public partial class Main : Node3D
 
     /// <summary>
     /// True when the game's manifest declares <c>"Xr": true</c>, meaning the
-    /// game wants XR started at launch. Works for a project folder and for a
-    /// packaged archive (the manifest is streamed without extracting the pak).
+    /// game wants XR started at launch. Works for a project folder, a file pak
+    /// and an embedded <c>res://</c> pak (the manifest is streamed, so the pak
+    /// is never extracted just to answer this).
     /// </summary>
-    private static bool GameRequestsXr(string? gameDir, string? pakPath)
+    private static bool GameRequestsXr(string? gameDir, PakLocation pak)
     {
         try
         {
@@ -418,8 +411,14 @@ public partial class Main : Node3D
                 return manifest?.Xr == true;
             }
 
-            if (pakPath is not null)
-                return V12.Pak.V12PakReader.ReadManifestOnly(pakPath)?.Xr == true;
+            if (pak.Resource is { } resource)
+            {
+                return V12.Pak.V12PakReader
+                    .ReadManifestOnly(() => GodotPakStream.Open(resource))?.Xr == true;
+            }
+
+            if (pak.Path is { } path)
+                return V12.Pak.V12PakReader.ReadManifestOnly(path)?.Xr == true;
         }
         catch (Exception ex)
         {
@@ -429,36 +428,104 @@ public partial class Main : Node3D
         return false;
     }
 
-    /// <summary>
-    /// Finds a pak named after the running executable, so an exported build can
-    /// be shipped as <c>MyGame.exe</c> plus <c>MyGame.v12pak</c> with no
-    /// command line at all. Looks beside the executable, then the working
-    /// directory, then the Godot project root.
-    /// </summary>
-    private static string? ResolveExecutablePak()
+    /// <summary>A game pak is either a real file or a Godot resource.</summary>
+    private readonly record struct PakLocation(string? Path, string? Resource)
     {
-        string executable = OS.GetExecutablePath();
-        if (string.IsNullOrWhiteSpace(executable))
-            return null;
+        public bool IsEmpty => Path is null && Resource is null;
+    }
 
-        string name = Path.GetFileNameWithoutExtension(executable);
-        if (string.IsNullOrWhiteSpace(name))
-            return null;
-
-        string pakName = name + ".v12pak";
-        foreach (string? directory in new[]
-                 {
-                     Path.GetDirectoryName(executable),
-                     Directory.GetCurrentDirectory(),
-                     ProjectSettings.GlobalizePath("res://"),
-                 })
+    /// <summary>
+    /// Finds the game pak, in order: an explicit <c>--pak</c> (file or Godot
+    /// path), a file named after the executable beside it, a
+    /// <c>res://&lt;exe-name&gt;.v12pak</c>, then the first <c>*.v12pak</c> at
+    /// the package root. The last two are what an exported Android build uses:
+    /// the APK has no writable folder beside its executable, and the export
+    /// cannot rename that executable per game.
+    /// </summary>
+    private static PakLocation ResolvePak(string? requested)
+    {
+        if (!string.IsNullOrWhiteSpace(requested))
         {
-            if (string.IsNullOrWhiteSpace(directory))
-                continue;
+            if (requested.StartsWith("res://", StringComparison.OrdinalIgnoreCase) ||
+                requested.StartsWith("user://", StringComparison.OrdinalIgnoreCase))
+            {
+                if (Godot.FileAccess.FileExists(requested))
+                    return new PakLocation(null, requested);
 
-            string candidate = Path.Combine(directory, pakName);
-            if (File.Exists(candidate))
-                return candidate;
+                GD.PushError($"[NovaV2.Host] Pak resource not found: {requested}");
+                return new PakLocation(null, null);
+            }
+
+            if (File.Exists(requested))
+                return new PakLocation(System.IO.Path.GetFullPath(requested), null);
+
+            // A bare name may still live inside the package.
+            if (Godot.FileAccess.FileExists(requested))
+                return new PakLocation(null, requested);
+
+            GD.PushError($"[NovaV2.Host] Pak not found: {requested}");
+            return new PakLocation(null, null);
+        }
+
+        string executable = OS.GetExecutablePath();
+        if (!string.IsNullOrWhiteSpace(executable))
+        {
+            string name = System.IO.Path.GetFileNameWithoutExtension(executable);
+            if (!string.IsNullOrWhiteSpace(name))
+            {
+                foreach (string? directory in new[]
+                         {
+                             System.IO.Path.GetDirectoryName(executable),
+                             Directory.GetCurrentDirectory(),
+                             ProjectSettings.GlobalizePath("res://"),
+                         })
+                {
+                    if (string.IsNullOrWhiteSpace(directory))
+                        continue;
+
+                    string candidate = System.IO.Path.Combine(directory, name + ".v12pak");
+                    if (File.Exists(candidate))
+                    {
+                        GD.Print($"[NovaV2.Host] Using pak named after the executable: {candidate}");
+                        return new PakLocation(candidate, null);
+                    }
+                }
+
+                string resource = "res://" + name + ".v12pak";
+                if (Godot.FileAccess.FileExists(resource))
+                {
+                    GD.Print($"[NovaV2.Host] Using embedded pak: {resource}");
+                    return new PakLocation(null, resource);
+                }
+            }
+        }
+
+        string? embedded = FindEmbeddedPak();
+        if (embedded is not null)
+            GD.Print($"[NovaV2.Host] Using embedded pak: {embedded}");
+
+        return new PakLocation(null, embedded);
+    }
+
+    /// <summary>
+    /// First <c>*.v12pak</c> at the package root, alphabetically. Android
+    /// exports put content inside the APK, where this is the normal discovery
+    /// path; a desktop source run can use it too.
+    /// </summary>
+    private static string? FindEmbeddedPak()
+    {
+        try
+        {
+            foreach (string file in DirAccess.GetFilesAt("res://")
+                         .OrderBy(name => name, StringComparer.OrdinalIgnoreCase))
+            {
+                if (file.EndsWith(".v12pak", StringComparison.OrdinalIgnoreCase))
+                    return "res://" + file;
+            }
+        }
+        catch (Exception ex)
+        {
+            GD.Print($"[NovaV2.Host] Could not scan res:// for a pak: {ex.Message}");
         }
 
         return null;

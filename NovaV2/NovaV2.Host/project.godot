@@ -27,9 +27,13 @@ window/size/viewport_height=720
 
 project/assembly_name="NovaV2.Host"
 
+[editor]
+
+run/main_run_args="--game ../../V12-Samples/PhysicsPlayground"
+
 [editor_plugins]
 
-enabled=PackedStringArray("res://addons/godotsteam/plugin.cfg", "res://addons/workbench/plugin.cfg")
+enabled=PackedStringArray("res://addons/workbench/plugin.cfg")
 
 [physics]
 

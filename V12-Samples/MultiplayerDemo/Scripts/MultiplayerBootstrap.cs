@@ -7,6 +7,7 @@ using V12.Core;
 using V12.Core.Core.Interfaces;
 using V12.Core.Interfaces.Renderer;
 using V12.Core.Networking;
+using V12.Core.Timing;
 
 namespace MultiplayerDemo;
 
@@ -14,8 +15,9 @@ namespace MultiplayerDemo;
 /// Starts the per-world network link and owns the player avatars.
 ///
 /// The host spawns one body per player and applies that player's input. Clients
-/// send small input commands and receive their avatar assignment. Every avatar
-/// is replicated through the normal world snapshot / element-update path.
+/// send small sequenced input commands, predict desktop movement locally, and
+/// reconcile from the host's state acks. Every avatar is replicated through the
+/// normal world snapshot / element-update path.
 ///
 ///   V12_MP_MODE=host|client|off
 ///   V12_MP_HOST=127.0.0.1
@@ -177,7 +179,7 @@ public sealed class MultiplayerBootstrap : ComponentBase
     {
         while (_joined.TryDequeue(out long playerId))
         {
-            var avatar = SpawnAvatar(playerId);
+            var avatar = SpawnAvatar(playerId, clientDriven: true);
             if (avatar == null) continue;
 
             _link?.SendToClient(playerId, new MessageDTO
@@ -231,29 +233,83 @@ public sealed class MultiplayerBootstrap : ComponentBase
         }
 
         var component = avatar.GetComponent<MultiplayerAvatarComponent>();
+        if (component is null) return;
+
+        // Client bodies never integrate host-local input. Desktop commands are
+        // applied as deterministic steps; XR clients own their rig and send the
+        // captured body pose directly.
+        component.ClientDriven = true;
+
         if (command.HasBodyPose)
-            component?.SetBodyPose(command.BodyPosition, command.BodyYaw);
+        {
+            component.SetBodyPose(command.BodyPosition, command.BodyYaw);
+        }
         else
-            component?.SetInput(command.MoveX, command.MoveZ, command.Yaw);
+        {
+            float delta = command.Delta > 0f
+                ? command.Delta
+                : FixedStepClock.DefaultFixedDeltaTime;
+            component.ApplyInputStep(
+                command.MoveX, command.MoveZ, command.Yaw, delta, command.Envelope, command.Sequence);
+            SendStateAck(playerId, avatar, command.Sequence);
+        }
 
         if (command.HasXr)
-            component?.SetXr(
+            component.SetXr(
                 command.HeadPosition, command.HeadRotation,
                 command.LeftHandPosition, command.LeftHandRotation,
                 command.RightHandPosition, command.RightHandRotation);
     }
 
+    /// <summary>
+    /// Echo the last applied input sequence and the authoritative transform to
+    /// the owning client. The client replays any inputs newer than this
+    /// sequence from the authoritative state, so prediction converges on the
+    /// host result without making the player wait for the round trip.
+    /// </summary>
+    private void SendStateAck(long playerId, IWorldElement avatar, uint sequence)
+    {
+        if (_isClient || _link is null) return;
+
+        _link.SendToClient(playerId, new MessageDTO
+        {
+            Sender = new Uri("networkcables://worldhost"),
+            MessageType = MessageType.PlayerAction,
+            Message = JsonSerializer.SerializeToUtf8Bytes(new PlayerStateAck
+            {
+                Sequence = sequence,
+                Position = avatar.LocalTransform.Position,
+                Rotation = avatar.LocalTransform.Rotation,
+            }, MultiplayerJson.Options),
+        });
+    }
+
     private void OnServerMessage(MessageDTO message)
     {
-        if (message.MessageType != MessageType.PlayerWelcome) return;
+        switch (message.MessageType)
+        {
+            case MessageType.PlayerWelcome:
+            {
+                var welcome = JsonSerializer.Deserialize<PlayerWelcome>(
+                    message.Message, MultiplayerJson.Options);
+                if (welcome == null) return;
 
-        var welcome = JsonSerializer.Deserialize<PlayerWelcome>(message.Message, MultiplayerJson.Options);
-        if (welcome == null) return;
+                // The avatar delta and the welcome can arrive in the same frame;
+                // defer resolution until the element exists on the game thread.
+                _pendingWelcome = welcome;
+                TryResolveWelcome();
+                break;
+            }
 
-        // The avatar delta and the welcome can arrive in the same frame; defer
-        // resolution until the element exists on the game thread.
-        _pendingWelcome = welcome;
-        TryResolveWelcome();
+            case MessageType.PlayerAction:
+            {
+                var ack = JsonSerializer.Deserialize<PlayerStateAck>(
+                    message.Message, MultiplayerJson.Options);
+                if (ack != null)
+                    _controller?.ApplyServerState(ack);
+                break;
+            }
+        }
     }
 
     private void TryResolveWelcome()
@@ -279,7 +335,7 @@ public sealed class MultiplayerBootstrap : ComponentBase
         GameRoot.Log.Information("[MultiplayerDemo] Assigned avatar {AvatarId}", welcome.AvatarId);
     }
 
-    private IWorldElement? SpawnAvatar(long playerId)
+    private IWorldElement? SpawnAvatar(long playerId, bool clientDriven = false)
     {
         var root = GameRoot.Instance;
         var world = root?.SelectedWorld;
@@ -296,7 +352,11 @@ public sealed class MultiplayerBootstrap : ComponentBase
         element.AddComponent(new MeshRenderer { Mesh = mesh });
         element.AddComponent(new MaterialComponent(
             0.24f, 0.62f, 0.95f, 1f, metallic: 0.1f, roughness: 0.5f));
-        element.AddComponent(new MultiplayerAvatarComponent { PlayerId = playerId });
+        element.AddComponent(new MultiplayerAvatarComponent
+        {
+            PlayerId = playerId,
+            ClientDriven = clientDriven,
+        });
 
         var rig = new Element("XRRig");
         // Child poses are relative to the avatar root, which sits at the body

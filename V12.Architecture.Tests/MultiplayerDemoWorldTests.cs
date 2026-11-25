@@ -103,6 +103,8 @@ public sealed class MultiplayerDemoWorldTests
     {
         var command = new MultiplayerDemo.PlayerInputCommand
         {
+            Sequence = 42,
+            Delta = 1f / 60f,
             MoveX = 0.5f,
             MoveZ = -1f,
             Yaw = 0.25f,
@@ -122,13 +124,36 @@ public sealed class MultiplayerDemoWorldTests
             bytes, MultiplayerDemo.MultiplayerJson.Options);
 
         Assert.NotNull(restored);
-        Assert.True(restored!.HasXr);
+        Assert.Equal(command.Sequence, restored!.Sequence);
+        Assert.Equal(command.Delta, restored.Delta, 6);
+        Assert.True(restored.HasXr);
         Assert.True(restored.HasBodyPose);
         Assert.Equal(command.BodyPosition, restored.BodyPosition);
         Assert.Equal(command.BodyYaw, restored.BodyYaw, 4);
         Assert.Equal(command.HeadPosition, restored.HeadPosition);
         Assert.Equal(command.LeftHandPosition, restored.LeftHandPosition);
         Assert.Equal(command.RightHandPosition, restored.RightHandPosition);
+    }
+
+    [Fact]
+    public void PlayerStateAck_RoundTripsReconciliationState()
+    {
+        var ack = new MultiplayerDemo.PlayerStateAck
+        {
+            Sequence = 7,
+            Position = new System.Numerics.Vector3(1f, 0.65f, -2f),
+            Rotation = System.Numerics.Quaternion.CreateFromYawPitchRoll(0.5f, 0f, 0f),
+        };
+
+        var bytes = System.Text.Json.JsonSerializer.SerializeToUtf8Bytes(
+            ack, MultiplayerDemo.MultiplayerJson.Options);
+        var restored = System.Text.Json.JsonSerializer.Deserialize<MultiplayerDemo.PlayerStateAck>(
+            bytes, MultiplayerDemo.MultiplayerJson.Options);
+
+        Assert.NotNull(restored);
+        Assert.Equal(ack.Sequence, restored!.Sequence);
+        Assert.Equal(ack.Position, restored.Position);
+        Assert.Equal(ack.Rotation, restored.Rotation);
     }
 
     [Fact]
@@ -217,6 +242,94 @@ public sealed class MultiplayerDemoWorldTests
 
         Assert.True(avatar.LocalTransform.Position.Z < 0f,
             $"expected host input to move the avatar forward, z={avatar.LocalTransform.Position.Z}");
+    }
+
+    [Fact]
+    public void AvatarComponent_ClientDrivenIgnoresLocalSimulation()
+    {
+        var root = new GameRoot();
+        var world = root.CreateWorld("Avatars");
+        var avatar = new Element("Avatar")
+        {
+            LocalTransform = new V12.Core.Interfaces.Renderer.TRS(
+                new System.Numerics.Vector3(0f, 0.65f, 0f)),
+        };
+        var component = new MultiplayerDemo.MultiplayerAvatarComponent
+        {
+            PlayerId = 1,
+            ClientDriven = true,
+        };
+        avatar.AddComponent(component);
+        world.AddElement(avatar);
+
+        component.SetInput(0f, -1f, 0f);
+        root.FixedUpdate(1f / 60f);
+
+        Assert.Equal(0f, avatar.LocalTransform.Position.Z, 4);
+    }
+
+    [Fact]
+    public void AvatarComponent_ApplyInputStepMovesHostBodyAndIgnoresStaleSequence()
+    {
+        var root = new GameRoot();
+        var world = root.CreateWorld("Avatars");
+        var avatar = new Element("Avatar")
+        {
+            LocalTransform = new V12.Core.Interfaces.Renderer.TRS(
+                new System.Numerics.Vector3(0f, 0.65f, 0f)),
+        };
+        var component = new MultiplayerDemo.MultiplayerAvatarComponent
+        {
+            PlayerId = 1,
+            ClientDriven = true,
+        };
+        avatar.AddComponent(component);
+        world.AddElement(avatar);
+
+        component.ApplyInputStep(0f, -1f, 0f, 1f / 60f, envelope: 1f, sequence: 2);
+
+        Assert.Equal(2u, component.LastAppliedSequence);
+        Assert.True(avatar.LocalTransform.Position.Z < 0f,
+            $"expected a client command to move the avatar, z={avatar.LocalTransform.Position.Z}");
+        var afterFirst = avatar.LocalTransform.Position;
+
+        // A late command must not move the authoritative body backwards.
+        component.ApplyInputStep(0f, -1f, 0f, 1f / 60f, envelope: 1f, sequence: 1);
+
+        Assert.Equal(2u, component.LastAppliedSequence);
+        Assert.Equal(afterFirst, avatar.LocalTransform.Position);
+    }
+
+    [Fact]
+    public void ComputeStep_IsDeterministicForHostAndPrediction()
+    {
+        var start = new System.Numerics.Vector3(1f, 0f, 4f);
+
+        var host = MultiplayerDemo.MultiplayerAvatarComponent.ComputeStep(
+            start, 0.5f, -1f, 0.3f, 1f / 60f);
+        var client = MultiplayerDemo.MultiplayerAvatarComponent.ComputeStep(
+            start, 0.5f, -1f, 0.3f, 1f / 60f);
+
+        Assert.Equal(host.Position, client.Position);
+        Assert.Equal(host.Rotation, client.Rotation);
+        Assert.NotEqual(start, host.Position);
+    }
+
+    [Fact]
+    public void ComputeStep_ScalesTravelByEnvelope()
+    {
+        var start = new System.Numerics.Vector3(1f, 0f, 4f);
+
+        var full = MultiplayerDemo.MultiplayerAvatarComponent.ComputeStep(
+            start, 0f, -1f, 0f, 1f / 60f, envelope: 1f);
+        var half = MultiplayerDemo.MultiplayerAvatarComponent.ComputeStep(
+            start, 0f, -1f, 0f, 1f / 60f, envelope: 0.5f);
+
+        float fullDistance = System.Numerics.Vector3.Distance(start, full.Position);
+        float halfDistance = System.Numerics.Vector3.Distance(start, half.Position);
+
+        Assert.True(fullDistance > 0f);
+        Assert.Equal(fullDistance * 0.5f, halfDistance, 4);
     }
 
     [Fact]

@@ -16,6 +16,13 @@ public partial class NovaV2HostNode : Node3D
     [Export] public bool CreateRootIfMissing { get; set; } = true;
     [Export] public bool LockMouseOnStart { get; set; }
     [Export] public string PakPath { get; set; } = "";
+
+    /// <summary>
+    /// Embedded pak resource (<c>res://MyGame.v12pak</c>), used when the game
+    /// ships the archive inside its own package instead of beside the
+    /// executable. Takes precedence over <see cref="PakPath"/>.
+    /// </summary>
+    [Export] public string PakResource { get; set; } = "";
     [Export] public string ShaderDirectory { get; set; } = "";
     [Export] public string GamepakDirectory { get; set; } = "gamepaks";
     [Export] public string ForceGamepak { get; set; } = "";
@@ -195,6 +202,7 @@ public partial class NovaV2HostNode : Node3D
         var options = new NovaV2RuntimeOptions
         {
             PakPath = string.IsNullOrWhiteSpace(PakPath) ? null : PakPath,
+            PakResource = string.IsNullOrWhiteSpace(PakResource) ? null : PakResource,
             ShaderDirectory = string.IsNullOrWhiteSpace(ShaderDirectory) ? null : ShaderDirectory,
             GamepakDirectory = string.IsNullOrWhiteSpace(GamepakDirectory) ? string.Empty : GamepakDirectory,
             ForceGamepak = string.IsNullOrWhiteSpace(ForceGamepak) ? null : ForceGamepak,
@@ -206,7 +214,16 @@ public partial class NovaV2HostNode : Node3D
 
         // Godot keeps everything after "--" out of GetCmdlineArgs, so user
         // options have to be read from GetCmdlineUserArgs first.
-        options.PakPath ??= CommandLineValue("--pak");
+        if (CommandLineValue("--pak") is { } pak)
+        {
+            // A Godot virtual path is opened through FileAccess, not System.IO.
+            if (pak.StartsWith("res://", StringComparison.OrdinalIgnoreCase) ||
+                pak.StartsWith("user://", StringComparison.OrdinalIgnoreCase))
+                options.PakResource ??= pak;
+            else
+                options.PakPath ??= pak;
+        }
+
         options.ForceGamepak ??= CommandLineValue("--gamepak");
 
         // `--xr on` enables the rig and starts it; `--xr off` disables the rig

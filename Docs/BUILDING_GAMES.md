@@ -207,6 +207,45 @@ Spawn a player:
 world.SpawnPlayer3D(new Vector3(0f, 1.5f, 0f));
 ```
 
+### Shared desktop/XR player motor
+
+For a player that works on desktop and in a headset, use
+`V12.Basic.Player.PlayerMotorComponent` instead of the older `PlayerComponent`.
+It expects a floor rig named `Player` with a separate capsule body named
+`PlayerBody` (the VR-friendly split), drives the body through its
+`LocomotionComponent`, and supports a single-element body as a fallback.
+
+```xml
+<Element name="Player">
+  <Component type="PlayerMotorComponent" BodyElementName="PlayerBody" />
+  <!-- DesktopCamera and XRRig children -->
+</Element>
+<Element name="PlayerBody">
+  <Component type="RigidBodyComponent" />
+  <Component type="LocomotionComponent" UseExternalVelocity="True" />
+  <Component type="ColliderComponent" Shape="Capsule" />
+  <Component type="PhysicsBodyComponent" BodyType="Dynamic" LockRotation="True" />
+  <!-- capsule mesh -->
+</Element>
+```
+
+Movement speed is shaped by an ADSR envelope:
+
+| Property | Meaning |
+|---|---|
+| `Attack` | Seconds to ramp from rest to full input speed. |
+| `Decay` | Seconds to settle from full speed to `Sustain`. |
+| `Sustain` | Fraction of top speed held while input stays pressed. |
+| `Release` | Seconds for the release tail to reach zero; the last direction is kept during the tail. |
+
+The motor also handles mouse/XR look, keyboard/gamepad/XR movement, jump,
+smooth XR turn with `TurnDeadzone`, room-scale head offsets, floor-rig sync and
+fall reset. `ExternalVelocity` carries a moving platform; `ResetRequested` lets
+a game reset its own world state when the motor resets.
+
+`MovementEnvelope` is reusable on its own when a game owns its movement math, as
+`MultiplayerDemo` does for its deterministic host/client step.
+
 ### Space and point gravity
 
 A planet is an element with a `GravitySourceComponent`. The component publishes
@@ -281,6 +320,13 @@ inline (tabs, table columns/rows, dropdown items), and widgets bound to named
 actions (`Action="pulse"`) that a script registers with `UiActions.Register`.
 Its README lists which components still need code and which behave as
 approximations in the Paper backend.
+
+`V12-Samples/PhysicsPlayground` is the ground-physics sample: a dynamic player
+capsule, static level geometry, a rotated ramp, a continuous kinematic platform,
+trigger volumes, mass-varied grabbable props and a throw-scoring bin. It uses
+`GrabberComponent`/`GrabbableComponent` from `V12.Basic/Grabbing` for both the
+desktop ray and XR hands, and sets `LocomotionComponent.UseExternalVelocity` so
+its own controller owns the velocity.
 
 Load a pak:
 

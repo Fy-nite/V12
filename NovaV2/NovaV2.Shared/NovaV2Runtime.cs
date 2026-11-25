@@ -252,6 +252,12 @@ public sealed class NovaV2Runtime : IDisposable
         _renderer.XREnabled = _xr?.IsAvailable == true;
 
         _root.V12Tick(deltaTime);
+
+        // The V12 tick can move the player rig (and therefore its hand meshes).
+        // Move the OpenXR origin to the same transform before the frame is built
+        // so the rendered hands and the headset camera share one player pose.
+        _xr?.SyncOriginAfterSimulation();
+
         Render(deltaTime);
     }
 
@@ -486,16 +492,37 @@ public sealed class NovaV2Runtime : IDisposable
 
         bool startedAny = false;
 
-        if (!string.IsNullOrWhiteSpace(_options.PakPath) && File.Exists(_options.PakPath))
+        // An embedded mobile pak is extracted out of the app package once, so
+        // keep that extraction in user:// where the OS does not clear it.
+        ConfigurePakCacheRoot();
+
+        string? pakResource = _options.PakResource;
+        if (!string.IsNullOrWhiteSpace(pakResource) && !Godot.FileAccess.FileExists(pakResource))
+            pakResource = null;
+
+        // A host that only knows about PakPath can still pass `res://...`.
+        if (pakResource is null &&
+            _options.PakPath is { } resourcePath &&
+            (resourcePath.StartsWith("res://", StringComparison.OrdinalIgnoreCase) ||
+             resourcePath.StartsWith("user://", StringComparison.OrdinalIgnoreCase)))
         {
+            if (Godot.FileAccess.FileExists(resourcePath))
+                pakResource = resourcePath;
+        }
+
+        bool pakFileExists = !string.IsNullOrWhiteSpace(_options.PakPath) && File.Exists(_options.PakPath);
+
+        if (pakResource is not null || pakFileExists)
+        {
+            string pakDisplay = pakResource ?? _options.PakPath!;
             try
             {
-                _loadedPakArchive = _root.LoadPak(_options.PakPath, new V12PakOptions
-                {
-                    LoadDlls = true,
-                    LoadContractScripts = true,
-                    LoadCSharpScripts = true,
-                });
+                _loadedPakArchive = pakResource is not null
+                    ? _root.LoadPak(
+                        pakResource,
+                        () => GodotPakStream.Open(pakResource),
+                        PakLoadOptions())
+                    : _root.LoadPak(_options.PakPath!, PakLoadOptions());
 
                 LoadPakShaders(_loadedPakArchive);
 
@@ -509,13 +536,13 @@ public sealed class NovaV2Runtime : IDisposable
                     startedAny = true;
                 }
 
-                GD.Print($"[NovaV2] Loaded pak '{Path.GetFileName(_options.PakPath)}' " +
+                GD.Print($"[NovaV2] Loaded pak '{Path.GetFileName(pakDisplay)}' " +
                          $"({_loadedPakArchive.LoadedWorlds.Count} world(s), " +
                          $"{_loadedPakArchive.LoadedGamepaks} gamepak(s)).");
             }
             catch (Exception ex)
             {
-                GD.PrintErr($"[NovaV2] Failed to load pak '{_options.PakPath}': {ex.Message}");
+                GD.PrintErr($"[NovaV2] Failed to load pak '{pakDisplay}': {ex.Message}");
             }
         }
 
@@ -585,6 +612,35 @@ public sealed class NovaV2Runtime : IDisposable
         if (_root.SelectedWorld is null && _root.Worlds.Count > 0)
             _root.SelectWorld(_root.Worlds[0]);
     }
+
+    /// <summary>
+    /// Extracts embedded paks into <c>user://</c> on mobile. The OS temp
+    /// directory is only a cache it can clear, and re-unpacking a multi-gigabyte
+    /// APK-embedded pak every launch is not acceptable. An explicit
+    /// <c>V12_PAK_CACHE</c> always wins.
+    /// </summary>
+    private static void ConfigurePakCacheRoot()
+    {
+        if (!OS.HasFeature("mobile"))
+            return;
+
+        if (!string.IsNullOrWhiteSpace(
+                System.Environment.GetEnvironmentVariable("V12_PAK_CACHE")))
+        {
+            return;
+        }
+
+        string cache = ProjectSettings.GlobalizePath("user://v12paks");
+        if (!string.IsNullOrWhiteSpace(cache))
+            V12PakCache.RootDirectory = cache;
+    }
+
+    private static V12PakOptions PakLoadOptions() => new()
+    {
+        LoadDlls = true,
+        LoadContractScripts = true,
+        LoadCSharpScripts = true,
+    };
 
     /// <summary>
     /// Registers every <c>.v12shader</c> the pak's manifest lists. The pak

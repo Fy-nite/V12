@@ -9,6 +9,7 @@ and authoring tools.
 | `BOUNDARY_REFACTOR_PLAN.md` | Staged plan for the V12.Paper / V12.Editor split and cleanup |
 | `WORKING_ON_V12.md` | Checkout, build, test, and contribution workflow |
 | `GAMEPAK_PROJECTS.md` | .NET game paks: component discovery, MSBuild reference keys, pak layout and manifest keys |
+| `BUILDING_FOR_ANDROID.md` | Android APK/AAB export: SDK/JDK setup, embedding the pak in `res://`, signing, Quest XR, troubleshooting |
 | `MODULES.md` | Module system and mod paks: loadable code, `module.json`, dependencies, diagnostics, host integration |
 | `HOT_RELOAD_NOVAV2.md` | NovaV2 `--game --hot-reload`: live C# compile, world swaps, limits |
 | `MCP.md` | V12 MCP: live scene read/write for MCP clients, the loadable probe, tools, security |
@@ -18,6 +19,7 @@ and authoring tools.
 | `SHADERS.md` | Custom shaders: the `shader://` asset, Godot's three doors, and the phase plan |
 | `MODEL_LOADING.md` | Static 3D models: `ModelInstance` vs `MeshAsset`, mounts, materials, textures, and import conventions |
 | `FEDERATED_INSTANCES.md` | VNode/V12 split, world regions, host leases and handoff, workers, identity, and optional federation |
+| `PEER_HOSTING_AND_AUTHORITY.md` | Implementation plan for peer-hosted regions, per-entity authority and epochs, gateway-first clients, and freeze/snapshot/resume host handoff |
 | `RENDERER_AGNOSTIC_UI.md` | Plan for screen-space and world-space UI as engine-owned meshes, with engine picking and headless simulation |
 | `WORLD_SESSIONS_AND_PERMISSIONS.md` | Multi-world sessions, focus and hidden worlds, per-world connections, fine-grained permissions, temporary worlds and orbs |
 | `BUILDING_GAMES.md` | Gameplay cheatsheet: fixed-step rules, transforms, WorldML, SyncValue, and common recipes |

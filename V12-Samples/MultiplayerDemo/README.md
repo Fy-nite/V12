@@ -4,11 +4,13 @@ A small V12 gamepak with a shared host-authoritative cube, replicated player
 avatars, and one player controller that works on desktop and in XR.
 
 The host owns the simulation and spawns one avatar per player. Desktop clients
-send movement intent to the host; the host moves that client's avatar and
-replicates the transform through the normal world update path. An XR client moves
-its own rig for responsiveness and sends the resulting floor pose, so the host
-places that player's body under their headset. Every peer sees the other avatars,
-while the local camera follows its own assigned avatar.
+predict their own movement locally, then reconcile against the host's
+authoritative state, so input responds immediately instead of waiting for a
+round trip. The host still applies every input command to the replicated body
+and broadcasts the result. An XR client moves its own rig for responsiveness and
+sends the resulting floor pose, so the host places that player's body under
+their headset. Every peer sees the other avatars, while the local camera follows
+its own assigned avatar.
 
 The same pak runs as a host, a client, or a local solo sandbox. Mode is read
 from environment variables, so there are no separate builds:
@@ -106,17 +108,57 @@ the flat path without starting OpenXR.
   host snapshot.
 - The host spawns one `Avatar_<playerId>` per peer, with a body, head, and two
   hand blocks under an avatar XR rig.
-- Clients send `PlayerInputCommand` messages to the host. In XR they also send
-  the body floor pose plus head and hand poses relative to that body.
-- The host applies input and XR poses to the sender's avatar and replicates the
-  transforms as normal world element updates.
+- Clients send sequenced `PlayerInputCommand` messages to the host. Desktop
+  commands carry the fixed-step delta; XR commands also send the body floor pose
+  plus head and hand poses relative to that body.
+- The host applies desktop commands as deterministic steps and XR poses directly
+  to the sender's avatar, then replicates the transforms as normal world element
+  updates.
+- Desktop clients run the same step locally before sending it, so the camera
+  moves on the input tick. The host returns `PlayerStateAck` with the last
+  applied sequence and the authoritative transform; the client drops acknowledged
+  inputs and replays the rest, which keeps prediction converged even though the
+  host still owns the result.
 - In XR the body follows the headset, so stepping around the play space moves the
   visible avatar instead of leaving it at the spawn point.
 - The host's own avatar is visible to it, so the local XR hand meshes are hidden
   to avoid drawing a second pair of hands over the replicated ones. A client
   hides its own avatar and keeps its local rig hands.
-- Clients receive `PlayerWelcome` with the avatar assigned to them, hide their
-  own visual subtree, and follow it with the local camera or headset.
+- Clients receive `PlayerWelcome` with the avatar assigned to them and hide their
+  own visual subtree. The desktop camera follows the local prediction while the
+  host keeps the replicated body authoritative; XR uses the local headset pose.
+
+## Movement envelope
+
+The demo uses `V12.Basic.Player.MovementEnvelope`, the same ADSR envelope as the
+shared `PlayerMotorComponent`: attack, decay to sustain, and release. It shapes
+input speed, not collision response, so movement starts and stops with a little
+weight while the host remains authoritative.
+
+The envelope value is sampled per fixed step and carried in
+`PlayerInputCommand.Envelope`. The host applies that exact value in
+`MultiplayerAvatarComponent.ComputeStep`, and the client stores it in each
+pending input so prediction replay uses the same speed. Without sending the
+value, a client and host with different envelope phases would drift apart.
+
+XR still uses the client-owned rig pose path. The envelope shapes the local rig
+movement there; the host mirrors the resulting body/head/hand poses.
+
+## Client prediction
+
+Desktop clients predict movement locally and reconcile through `PlayerStateAck`.
+The host is still authoritative: it applies each sequenced command, and an ack
+carries the last applied sequence plus the resulting transform. The client drops
+acknowledged inputs, replays anything newer from the host transform, and keeps
+moving. If the host result differs, the next ack corrects the prediction.
+
+XR uses a different model. The tracked rig is already local and responsive, so
+the client sends the captured body, head, and hand pose and the host mirrors it.
+There is no desktop-style replay for XR.
+
+The demo trusts the client's command rate and fixed-step delta. A production
+host should validate or rate-limit both; prediction does not change who owns the
+authoritative body.
 
 ## Hot iteration
 

@@ -1,5 +1,6 @@
 using System.IO;
 using System.Linq;
+using V12.Components.UI;
 using V12.Core;
 using V12.Core.Rendering;
 using V12.WorldML;
@@ -76,6 +77,24 @@ public sealed class UiShowcaseCaptureTests
 
         var dropdown = Assert.Single(frame.Nodes, n => n.Name == "Choice");
         Assert.Equal(new[] { "Amber", "Bone", "Ember", "Linen" }, dropdown.Items.ToArray());
+    }
+
+    [Fact]
+    public void InactiveCanvas_IsSkippedByCapture()
+    {
+        _ = new GameRoot();
+        var world = new World("Scene");
+        var hud = new Element("Hud");
+        hud.AddComponent(new CanvasComponent { ScreenSpace = true });
+        world.AddElement(hud);
+
+        hud.Active = false;
+        var hidden = GameRoot.Instance!.CaptureUI(world);
+        Assert.DoesNotContain(hidden.Nodes, n => n.Name == "Hud");
+
+        hud.Active = true;
+        var visible = GameRoot.Instance!.CaptureUI(world);
+        Assert.Contains(visible.Nodes, n => n.Name == "Hud");
     }
 
     [Fact]

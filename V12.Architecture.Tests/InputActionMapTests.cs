@@ -104,6 +104,40 @@ public sealed class InputActionMapTests
     }
 
     [Fact]
+    public void DeltaAxis_KeepsTravelAboveOne()
+    {
+        var map = new InputActionMap();
+        map.BindDeltaAxis("LookX", "mouse_dx", "");
+
+        map.OnInputEvent(new InputEvent
+        {
+            Type = InputEventType.Axis,
+            Name = "mouse_dx",
+            Value = 42.5f,
+        });
+        map.Update(0f);
+
+        Assert.Equal(42.5f, map.GetAxis("LookX"));
+    }
+
+    [Fact]
+    public void NameAxis_ClampsToStickRange()
+    {
+        var map = new InputActionMap();
+        map.BindAxis("LookX", "mouse_dx", "");
+
+        map.OnInputEvent(new InputEvent
+        {
+            Type = InputEventType.Axis,
+            Name = "mouse_dx",
+            Value = 42.5f,
+        });
+        map.Update(0f);
+
+        Assert.Equal(1f, map.GetAxis("LookX"));
+    }
+
+    [Fact]
     public void NameAxis_KeepsNegativeDirection()
     {
         var map = new InputActionMap();

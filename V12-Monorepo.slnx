@@ -71,6 +71,7 @@
   <Folder Name="/V12-Samples/">
     <Project Path="V12-Samples/HelloDotnet/HelloDotnet.csproj" />
     <Project Path="V12-Samples/MultiplayerDemo/MultiplayerDemo.csproj" />
+    <Project Path="V12-Samples/PhysicsPlayground/PhysicsPlayground.csproj" />
     <Project Path="V12-Samples/SpaceFlight/SpaceFlight.csproj" />
     <Project Path="V12-Samples/UiShowcase/UiShowcase.csproj" />
   </Folder>

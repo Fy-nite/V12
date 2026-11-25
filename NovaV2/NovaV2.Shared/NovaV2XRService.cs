@@ -51,7 +51,6 @@ public sealed class NovaV2XRService : IDisposable
     private int _cacheTimer;
 
     private readonly Dictionary<string, bool> _prevButtons = new();
-    private readonly Dictionary<string, float> _prevFloats = new();
     private static readonly bool DebugInput =
         System.Environment.GetEnvironmentVariable("V12_MP_DEBUG") == "1";
     private Vector2 _lastDebugStick;
@@ -305,7 +304,6 @@ public sealed class NovaV2XRService : IDisposable
 
         IsAvailable = false;
         _prevButtons.Clear();
-        _prevFloats.Clear();
 
         if (_camera is not null && GodotObject.IsInstanceValid(_camera))
             _camera.Current = false;
@@ -442,6 +440,15 @@ public sealed class NovaV2XRService : IDisposable
 
     }
 
+    /// <summary>
+    /// Re-apply the player transform to the OpenXR origin after the V12 tick and
+    /// before rendering. Poses are written before the tick, so without this the
+    /// hand meshes (composed with the new player transform) and the XR camera
+    /// (still on the previous origin) disagree for one frame; that reads as the
+    /// hands leading the view when locomotion starts.
+    /// </summary>
+    public void SyncOriginAfterSimulation() => SyncOrigin();
+
     /// <summary>The rig follows the player element so room-scale movement plus
     /// player movement compose correctly.</summary>
     private void SyncOrigin()
@@ -496,11 +503,6 @@ public sealed class NovaV2XRService : IDisposable
     private void PollFloat(XRController3D controller, string side, string name)
     {
         float value = controller.GetFloat(name);
-        string key = side + ":" + name;
-        if (_prevFloats.TryGetValue(key, out float previous) && Math.Abs(value - previous) < 0.001f)
-            return;
-
-        _prevFloats[key] = value;
 
         if (name == "trigger")
         {
@@ -513,6 +515,9 @@ public sealed class NovaV2XRService : IDisposable
             else RightGrip = value;
         }
 
+        // Publish every frame, not only on change. InputActionMap clears name
+        // axes at the end of each fixed step, so a change-only axis would be
+        // pressed for one tick and then look released.
         SendAxis($"xr_{side}_{name}", value);
     }
 

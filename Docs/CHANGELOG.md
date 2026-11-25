@@ -7,6 +7,55 @@ All notable engine and tooling changes. The gameplay-facing rules live in
 
 ### Added
 
+- Android/mobile pak loading from the app package. `V12PakReader`,
+  `V12PakLoader` (`LoadFromStream`) and `GameRoot.LoadPak` accept a stream-backed
+  pak, keyed in the extraction cache by a sampled length/head/tail hash, so an
+  archive embedded in `res://` is unpacked straight to the cache instead of
+  being copied out first. NovaV2 adds `GodotPakStream`, discovers
+  `res://<name>.v12pak` and `res://*.v12pak`, extracts mobile paks into
+  `user://v12paks`, and skips pak native probing on Android/iOS because the
+  platform will not load libraries from app-writable storage (those belong in
+  the APK's `lib/<abi>/`). The Android export preset enables Gradle (required
+  for .NET) and includes `*.v12pak`. The step-by-step setup, signing and
+  troubleshooting guide is [`BUILDING_FOR_ANDROID.md`](BUILDING_FOR_ANDROID.md).
+- `InputActionMap.BindDeltaAxis`: unbounded delta axes for mouse and touch
+  travel. Normal axes stay clamped to `[-1, 1]` for sticks and key pairs, while
+  a delta axis keeps the host's raw pixel movement. This fixes mouse look that
+  was being silently capped to one pixel-equivalent per fixed tick.
+- `LocomotionComponent.UseExternalVelocity`: lets a custom controller own
+  `LocomotionComponent.Velocity` and keeps the legacy named-action
+  `LocomotionSystem` from zeroing it. Needed by gamepaks whose host does not
+  register the demo `move_*` actions.
+- `V12.Basic.Player.PlayerMotorComponent` and `MovementEnvelope`: the shared
+  desktop/XR player motor. It drives a dynamic capsule through
+  `LocomotionComponent`, keeps a floor rig named `Player` above a separate
+  `PlayerBody`, handles room-scale head offsets and rig yaw, supports desktop
+  camera and XR sticks/turn, and shapes input speed with an ADSR envelope
+  (`Attack`, `Decay`, `Sustain`, `Release`) for movement with weight. It exposes
+  `ExternalVelocity` for carriers, `ResetRequested` for game-level resets, and
+  `IsXr` / `Head` / `LeftHand` / `Body` for sample-specific HUDs.
+- `V12.Basic.Grabbing`: reusable `GrabberComponent` and `GrabbableComponent`.
+  The grabber supports a desktop camera ray and both XR hands, keeps held bodies
+  dynamic (velocity-driven toward the hand/aim point), restores gravity on
+  release, throws with hand velocity, and releases after a blocked-body leash.
+  XR grab state uses the trigger/grip click edges so a held squeeze survives the
+  fixed-step clearing of host-frame analog axes. The legacy `PickupSystem` yields
+  to it when present.
+- `V12-Samples/PhysicsPlayground`: a physics yard with static level geometry, a
+  dynamic player capsule, a rotated ramp, a continuous kinematic platform,
+  trigger volumes, mass-varied grabbable props and a throw-scoring bin. Runs
+  flat and in XR with a desktop HUD and a world-space wrist panel for the
+  headset. The floor rig and capsule body are separate elements, and the capsule
+  follows the tracked head so it sits under the player rather than the
+  play-space centre.
+- `Docs/PEER_HOSTING_AND_AUTHORITY.md`: implementation plan for peer-hosted
+  worlds and regions without a full simulation mesh. It defines per-entity
+  `Host`/`Owner`/`Client`/`Shared` authority, authority epochs, owner avatars
+  and held objects, gateway-first clients, a reliable structural operation log,
+  and freeze/snapshot/resume host handoff to friends, homeservers, and compute
+  nodes. The document maps each change onto the current `WorldSession`,
+  `DirtyTracker`, `NetworkWorldLink`, `WorldSync`, and `SyncValue` code and
+  sequences the work into local-first phases.
 - Double-precision floating origin for worlds. `WorldOffset`, `World.Origin`,
   `World.GlobalPositionOf` and `World.RebaseOrigin` keep a local float bubble
   and a global double offset; `IFloatingOriginAware` lets components move
@@ -342,6 +391,56 @@ All notable engine and tooling changes. The gameplay-facing rules live in
 
 ### Changed
 
+- NovaV2 XR now publishes `xr_<side>_trigger` and `xr_<side>_grip` every frame,
+  not only when the analog value changes. `InputActionMap` clears host-frame name
+  axes at the end of each fixed step, so a change-only trigger would look held
+  for one tick and released immediately after.
+- Inactive UI elements are now skipped by `UIFrame` capture and world-canvas
+  placement. This lets a host swap a screen-space HUD for a wrist/world canvas
+  by toggling `Active` instead of destroying the UI tree, and makes inactive
+  hand/wrist panels disappear with their parent.
+- Paper's spatial shaders no longer declare `world_vertex_coords`. Brush,
+  scissor and text sampling are authored in canvas pixel space, so a world
+  canvas was being sampled in metres and looked affinely warped when rotated.
+- Paper now has dedicated world-canvas shaders (`shader://v12.paper/world`,
+  `world-text`) and an opt-in flat HUD variant (`shader://v12.paper/world-flat`)
+  selected with `CanvasComponent.WorldShader = "flat"`. The flat variant keeps
+  the font SDF but skips pixel-space brush and scissor masks, which is the right
+  fit for wrist panels and small world HUDs viewed at steep angles.
+- `WorldCanvasSnapshot.Create` normalizes the transform's row-vector axes
+  instead of its columns. A scaled and rotated world canvas was being sheared by
+  the old column normalization, which is what produced the corner-warp look on
+  the wrist panel. `V12.Architecture.Tests/WorldCanvasTransformTests` guards the
+  orthonormal basis.
+- `V12-Samples/PhysicsPlayground` rotates the tracked room-scale walking delta
+  by the rig yaw before applying it to the body. Physical forward now follows the
+  direction the rig is facing after a turn, instead of staying on the old world
+  axis.
+- `V12-Samples/PhysicsPlayground` folds the moving platform's velocity into the
+  player's locomotion target while standing on it. The dynamic capsule is carried
+  at platform speed instead of being overwritten to zero each tick, and the
+  carry is no longer compounded into a launch velocity.
+- `V12-Samples/HelloXR` uses the XR trigger click edge for grab held state, so
+  the box stays in hand instead of grabbing and releasing on the first fixed
+  tick. The analog trigger remains the threshold fallback.
+- `PlayerMotorComponent` XR smooth turn now uses a 0.22 right-stick deadzone and
+  scales the remaining travel, so controller rest noise cannot yaw the rig on
+  its own.
+- `V12-Samples/MultiplayerDemo` uses `V12.Basic.Player.MovementEnvelope` for its
+  deterministic movement step. The client samples the envelope per fixed step,
+  carries it in `PlayerInputCommand.Envelope`, stores it in pending inputs for
+  replay, and the host applies the same value in `ComputeStep`. XR applies the
+  envelope to the local rig movement.
+- NovaV2 re-applies the player transform to the OpenXR origin after the V12 tick
+  and before rendering. The hand meshes and the headset camera now share one
+  player pose for the frame instead of the hands leading the view by one tick.
+- `V12-Samples/MultiplayerDemo`: desktop clients now predict their own movement
+  locally and reconcile against host state instead of waiting for the input round
+  trip. `PlayerInputCommand` carries a sequence and fixed-step delta, the host
+  applies one deterministic step per command to the client's avatar, and
+  `PlayerStateAck` echoes the last processed sequence plus the authoritative
+  transform. The client drops acknowledged inputs and replays pending ones from
+  the host transform. XR keeps its client-owned rig pose path.
 - `vcsdk build -r <id>` prefers an installed renderer whose folder name matches
   the requested id over a legacy install whose `renderer.json` merely claims
   that id. `~/.purr/renderers/nova` still declares `id: novav2` and sorted ahead

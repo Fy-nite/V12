@@ -114,8 +114,13 @@ namespace HelloXR.Components
 
             var actions = new InputActionMap { Name = "HelloXR" };
 
+            // The click edge is the held grab state. Host-frame analog axes are
+            // cleared between fixed steps, so an axis-only grab would release
+            // immediately after the first tick.
             actions.BindAxis("LeftTrigger", "xr_left_trigger", "");
             actions.BindAxis("RightTrigger", "xr_right_trigger", "");
+            actions.BindButton("LeftTriggerClick", "xr_left_trigger_click");
+            actions.BindButton("RightTriggerClick", "xr_right_trigger_click");
             actions.BindAxis("MoveX", "xr_left_stick_x", "");
             actions.BindAxis("MoveZ", "xr_left_stick_y", "");
 
@@ -167,15 +172,21 @@ namespace HelloXR.Components
 
             float left = _actions!.GetAxis("LeftTrigger");
             float right = _actions.GetAxis("RightTrigger");
+            bool leftClick = _actions.GetButton("LeftTriggerClick");
+            bool rightClick = _actions.GetButton("RightTriggerClick");
+            bool rightPressed = rightClick || right > GrabThreshold;
+            bool leftPressed = leftClick || left > GrabThreshold;
+            bool rightHeld = rightClick || right > ReleaseThreshold;
+            bool leftHeld = leftClick || left > ReleaseThreshold;
 
             if (!_grabbed)
             {
-                if (right > GrabThreshold && HandNear(_rightHand))
+                if (rightPressed && HandNear(_rightHand))
                 {
                     _grabbed = true;
                     _grabWithRight = true;
                 }
-                else if (left > GrabThreshold && HandNear(_leftHand))
+                else if (leftPressed && HandNear(_leftHand))
                 {
                     _grabbed = true;
                     _grabWithRight = false;
@@ -186,9 +197,9 @@ namespace HelloXR.Components
                 return;
 
             var hand = _grabWithRight ? _rightHand : _leftHand;
-            float trigger = _grabWithRight ? right : left;
+            bool held = _grabWithRight ? rightHeld : leftHeld;
 
-            if (hand is null || trigger < ReleaseThreshold)
+            if (hand is null || !held)
             {
                 _grabbed = false;
                 return;

@@ -7,8 +7,9 @@ using V12.Core.Interfaces.Renderer;
 namespace MultiplayerDemo;
 
 /// <summary>
-/// Host-owned avatar body. The host applies input here and the element's
-/// transform is replicated through the normal WorldElementUpdate path.
+/// Host-owned avatar body. The host's own body applies local input; client
+/// bodies apply sequenced commands from their owner. The element's transform is
+/// replicated through the normal WorldElementUpdate path.
 /// </summary>
 public sealed class MultiplayerAvatarComponent : ComponentBase
 {
@@ -18,20 +19,34 @@ public sealed class MultiplayerAvatarComponent : ComponentBase
     private float _inputX;
     private float _inputZ;
     private float _yaw;
+    private float _envelope = 1f;
     private IWorldElement? _head;
     private IWorldElement? _leftHand;
     private IWorldElement? _rightHand;
 
     public long PlayerId { get; set; }
 
+    /// <summary>
+    /// Host-side flag: this body is driven by the owning client's sequenced
+    /// input commands, so <see cref="Update"/> must not integrate local input.
+    /// The client runs the same deterministic steps for prediction.
+    /// </summary>
+    public bool ClientDriven { get; set; }
+
+    private uint _lastAppliedSequence;
+
+    /// <summary>Last client input sequence the host applied to this body.</summary>
+    public uint LastAppliedSequence => _lastAppliedSequence;
+
     public override string Name => "Multiplayer Avatar";
     public override string Description => "Host-owned player body";
 
-    public void SetInput(float moveX, float moveZ, float yaw)
+    public void SetInput(float moveX, float moveZ, float yaw, float envelope = 1f)
     {
         _inputX = Math.Clamp(moveX, -1f, 1f);
         _inputZ = Math.Clamp(moveZ, -1f, 1f);
         _yaw = yaw;
+        _envelope = Math.Clamp(envelope, 0f, 1f);
     }
 
     /// <summary>
@@ -112,23 +127,60 @@ public sealed class MultiplayerAvatarComponent : ComponentBase
         _rightHand ??= Owner.FindChildByNameRecursive("RightHand");
     }
 
-    public override void Update(float deltaTime)
+    /// <summary>
+    /// Advance a client-driven body by exactly one of that client's input
+    /// commands. The owning client runs <see cref="ComputeStep"/> with the same
+    /// arguments, so its predicted position matches the host result.
+    /// </summary>
+    public void ApplyInputStep(
+        float moveX, float moveZ, float yaw, float deltaTime, float envelope, uint sequence)
     {
         if (Owner is null) return;
 
-        var rotation = Quaternion.CreateFromYawPitchRoll(_yaw, 0f, 0f);
+        // Reliable ordering normally prevents stale commands, but reconnects or
+        // protocol changes can still deliver an old one. Ignore it instead of
+        // teleporting the body backwards.
+        if (sequence != 0 && sequence <= _lastAppliedSequence) return;
+
+        var (position, rotation) = ComputeStep(
+            Owner.LocalTransform.Position, moveX, moveZ, yaw, deltaTime, envelope);
+        Owner.LocalTransform = new TRS(position, rotation);
+
+        if (sequence != 0)
+            _lastAppliedSequence = sequence;
+    }
+
+    /// <summary>
+    /// One deterministic movement step shared by the host body and the owning
+    /// client's prediction. Keep this the only place the movement math lives.
+    /// </summary>
+    public static (Vector3 Position, Quaternion Rotation) ComputeStep(
+        Vector3 position, float moveX, float moveZ, float yaw, float deltaTime, float envelope = 1f)
+    {
+        var rotation = Quaternion.CreateFromYawPitchRoll(yaw, 0f, 0f);
         var forward = Vector3.Transform(-Vector3.UnitZ, rotation);
         var right = Vector3.Transform(Vector3.UnitX, rotation);
 
-        var move = forward * (-_inputZ) + right * _inputX;
+        var move = forward * (-moveZ) + right * moveX;
         if (move.LengthSquared() > 1f)
             move = Vector3.Normalize(move);
 
-        var position = Owner.LocalTransform.Position;
-        position += move * MoveSpeed * deltaTime;
+        float speed = MoveSpeed * Math.Clamp(envelope, 0f, 1f);
+        position += move * speed * deltaTime;
         position.X = Math.Clamp(position.X, -HalfExtent, HalfExtent);
         position.Z = Math.Clamp(position.Z, -HalfExtent, HalfExtent);
 
+        return (position, rotation);
+    }
+
+    public override void Update(float deltaTime)
+    {
+        // Client-driven bodies advance from sequenced commands in
+        // ApplyInputStep, not from the host's local input.
+        if (Owner is null || ClientDriven) return;
+
+        var (position, rotation) = ComputeStep(
+            Owner.LocalTransform.Position, _inputX, _inputZ, _yaw, deltaTime, _envelope);
         Owner.LocalTransform = new TRS(position, rotation);
     }
 }
