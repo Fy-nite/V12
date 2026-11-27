@@ -111,17 +111,32 @@ if (-not (Test-Path $rendererJson)) {
         Set-Content -Path $rendererJson -Encoding UTF8
 }
 
-# The host output must carry the engine assemblies the gamepak references.
+# The host output must carry every V12 assembly the gamepaks reference.
 # This is the exact failure mode that makes `vcsdk build -r novav2` produce a
-# pak that cannot start.
-foreach ($dll in @("V12.Gravity.dll", "V12.Physics.dll")) {
-    $found = Get-ChildItem $outputDir -Recurse -Filter $dll -File -ErrorAction SilentlyContinue |
-        Select-Object -First 1
-    if (-not $found) {
-        Write-Warning "Exported host is missing $dll. Rebuild NovaV2.Host before exporting."
+# pak that cannot start. The audit derives the set from the current host build,
+# so a new engine module such as V12.Voxel is covered without editing a
+# hardcoded list here.
+$auditScript = Join-Path $PSScriptRoot "check-v12-deps.ps1"
+$packageScript = Join-Path $PSScriptRoot "install-v12-packages.ps1"
+if (Test-Path $packageScript) {
+    & $packageScript -Target $outputDir
+}
+if (Test-Path $auditScript) {
+    try {
+        & $auditScript -Target $outputDir -Strict -IncludePackages
     }
+    catch {
+        throw "The exported host at $outputDir is missing or older than the host's V12 assemblies. Rebuild NovaV2.Host and rerun this script. $($_.Exception.Message)"
+    }
+}
+else {
+    Write-Warning "check-v12-deps.ps1 not found; skipping V12 assembly audit."
 }
 
 Write-Host ""
 Write-Host "Renderer ready: $outputDir" -ForegroundColor Green
-Write-Host "Next: vcsdk build V12-Samples/SpaceFlight -r novav2" -ForegroundColor Green
+Write-Host "Next: vcsdk build V12-Samples/VoxelPlanet -r novav2" -ForegroundColor Green
+
+# Godot can return a nonzero exit for editor warnings even after a complete
+# export; the produced host and the dependency audit are the authority.
+exit 0

@@ -126,6 +126,7 @@ public sealed class MultiplayerBootstrap : ComponentBase
                 _link.ClientJoined += OnClientJoined;
                 _link.ClientLeft += OnClientLeft;
                 _link.CommandReceived += OnCommandReceived;
+                session.LocalPlayerId = _link.HostPlayerId;
 
                 // The host has a body too, so clients can see it.
                 var hostAvatar = SpawnAvatar(_link.HostPlayerId);
@@ -329,6 +330,11 @@ public sealed class MultiplayerBootstrap : ComponentBase
         // Hide our own body and XR rig; the camera/headset is first person.
         // Other peers still receive and render the avatar.
         HideVisuals(avatar);
+
+        // The client needs to know which player it is before it can decide which
+        // elements it simulates (EntityAuthorityStore).
+        if (root.FindWorldSession(world) is { } session)
+            session.LocalPlayerId = welcome.PlayerId;
 
         _controller?.SetAvatar(avatar, remote: true);
         _pendingWelcome = null;

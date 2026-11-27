@@ -152,6 +152,32 @@ public readonly record struct AudioDeviceInfo(
 {
     public bool IsOutput => MaxOutputChannels > 0;
     public bool IsInput => MaxInputChannels > 0;
+
+    /// <summary>
+    /// True for a placeholder that accepts samples and throws them away. ALSA lists
+    /// its <c>null</c> PCM as "Discard all samples (playback) or generate zero
+    /// samples (capture)", and a machine whose real sink cannot be opened will
+    /// happily enumerate it as just another device. Playing into one looks exactly
+    /// like a working engine with no sound, so backends should not pick one while a
+    /// real device is available.
+    /// </summary>
+    public bool IsSilent => IsSilentDeviceName(Name);
+
+    /// <summary>
+    /// True when <paramref name="name"/> describes a null/discard/dummy device rather
+    /// than hardware. Used by <see cref="IsSilent"/> and by backend device selection.
+    /// </summary>
+    public static bool IsSilentDeviceName(string? name)
+    {
+        if (string.IsNullOrWhiteSpace(name))
+            return false;
+
+        string trimmed = name.Trim();
+        return trimmed.Equals("null", StringComparison.OrdinalIgnoreCase)
+            || trimmed.Equals("dummy", StringComparison.OrdinalIgnoreCase)
+            || trimmed.Contains("discard all samples", StringComparison.OrdinalIgnoreCase)
+            || trimmed.Contains("dummy device", StringComparison.OrdinalIgnoreCase);
+    }
 }
 
 /// <summary>A device state change reported by the backend.</summary>

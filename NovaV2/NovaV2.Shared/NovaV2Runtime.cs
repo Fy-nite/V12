@@ -64,6 +64,7 @@ public sealed class NovaV2Runtime : IDisposable
 
         _root = root;
         _options = options ?? new NovaV2RuntimeOptions();
+        _root.RenderInterpolation = _options.RenderInterpolation;
 
         var windowSize = host.GetWindow().Size;
         var viewportSize = host.GetViewport().GetVisibleRect().Size;
@@ -91,6 +92,9 @@ public sealed class NovaV2Runtime : IDisposable
             Channels = 2,
             BufferSize = 256,
             MaxChannels = 128,
+            OutputDeviceName = string.IsNullOrWhiteSpace(_options.AudioDeviceName)
+                ? null
+                : _options.AudioDeviceName,
         });
         root.Registry.Register("IAudioEngine", _audio);
 

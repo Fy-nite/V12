@@ -27,6 +27,10 @@ public sealed class ProgradeAttitudeComponent : ScriptableComponent
     public float ManualPitchRate { get; set; } = 1.0f;
     public float ManualRollRate { get; set; } = 1.6f;
 
+    /// <summary>The same SOI set the telemetry and camera use, so prograde is
+    /// measured against the local body instead of the world origin.</summary>
+    public GravityBodySet? Bodies { get; set; }
+
     /// <summary>
     /// Rotate the hull directly from stick input. The first manual input drops
     /// the flight-assist hold into Free so the ship keeps the attitude the
@@ -81,8 +85,14 @@ public sealed class ProgradeAttitudeComponent : ScriptableComponent
         if (body == null)
             return;
 
-        var velocity = body.LinearVelocity;
-        var position = body.Position;
+        // Prograde is relative to the body that owns the local gravity frame.
+        // Using the raw world velocity here made the hull chase Earth's
+        // heliocentric motion instead of its own orbit.
+        var localBody = Bodies?.FindDominant(body.Position);
+        var center = localBody?.WorldPosition ?? Vector3.Zero;
+        var velocity = body.LinearVelocity
+                     - (Bodies?.VelocityOf(localBody) ?? Vector3.Zero);
+        var position = body.Position - center;
         if (velocity.LengthSquared() < 1e-4f)
             return;
 

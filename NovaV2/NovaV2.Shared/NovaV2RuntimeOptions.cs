@@ -41,6 +41,14 @@ public sealed class NovaV2RuntimeOptions
     public bool LockMouseOnStart { get; set; }
 
     /// <summary>
+    /// Interpolate captured transforms between fixed steps for smooth motion on
+    /// a display faster than the fixed step. Costs a snapshot every rendered
+    /// frame and adds up to one fixed step of visual latency; gameplay and
+    /// picking still use the exact simulated pose. On by default.
+    /// </summary>
+    public bool RenderInterpolation { get; set; } = true;
+
+    /// <summary>
     /// Create the XR rig and service. On by default, but this only makes XR
     /// available: OpenXR is not initialised and the viewport is not switched to
     /// XR until <see cref="StartXR"/> is set or gameplay calls
@@ -55,4 +63,12 @@ public sealed class NovaV2RuntimeOptions
     /// relaunches.
     /// </summary>
     public bool StartXR { get; set; }
+
+    /// <summary>
+    /// Output device for the audio engine. Null uses the system default. Set with
+    /// <c>--audio-device &lt;name&gt;</c>; the name is matched case-insensitively
+    /// against the enumerated devices (a substring is accepted). Useful on Linux,
+    /// where ALSA's default PCM can fail while a real card still plays.
+    /// </summary>
+    public string? AudioDeviceName { get; set; }
 }

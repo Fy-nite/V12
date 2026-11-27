@@ -10,22 +10,30 @@ falling around Earth while Earth orbits the Sun, all driven by point-mass
 
 ## What you see
 
-- A Sun at the origin with the `2k_sun.jpg` texture.
+- A Sun at the origin with the `2k_sun.jpg` texture. Its 2,200,000-unit
+  radius is compressed (the real Sun is 109 Earth radii), but its 274 m/s²
+  surface gravity and `mu` are real enough that the planets orbit at sensible
+  heliocentric speeds.
 - Eight planets in solar order, all starting on the +X line and then orbiting
   at their own rates: Mercury, Venus, Earth, Mars, Jupiter, Saturn, Uranus and
-  Neptune. Their orbit rings are drawn around the Sun. The minor planets use
-  `MinorPlanetScale` (4x) so they read as worlds rather than dots at this
-  compressed orbit scale; Earth keeps its authored size because the ship orbit
-  and camera framing are tuned around it.
-- A 9,400-unit textured Earth at 270,000 units from the Sun, with a 10,900-unit
-  circular ship orbit drawn as a live cyan tube.
-- A textured 2,560-unit Moon orbiting Earth at 75,200 units. Its SOI is large
-  enough to take over the local orbit frame before you reach it. Planets are
-  solid sphere colliders and impacts are handled entirely by Bepu using the
-  ship's contact proxy and the contact material.
+  Neptune. Radii follow the real ordering on a "big world" scale (Earth is
+  420,000 units, Jupiter 1,800,000) so each body reads as a world in the chase
+  camera instead of a dot. Their orbit rings are drawn around the Sun.
+- A 420,000-unit textured Earth at 9,000,000 units from the Sun, with a
+  480,000-unit circular ship orbit drawn as a live cyan tube. That is a 60,000
+  unit parking altitude, 1,900 m/s circular speed and a 1,390-second period.
+- A textured 115,000-unit Moon orbiting Earth at 1,680,000 units. It has the
+  real 1.62 m/s² surface gravity and a 450,000-unit authored sphere of
+  influence. Planets are solid sphere colliders and impacts are handled
+  entirely by Bepu using the ship's contact proxy and the contact material.
+- A patched-conic gravity field. Inside a body's authored SOI only that body's
+  gravity acts; outside every SOI the Sun owns the ship. Planet SOIs are sized
+  to sit between the compressed orbits rather than from the raw mass ratio, so
+  the Moon can orbit inside Earth's frame without the giants stealing the
+  whole system.
 - A 4096x2048 nebula panorama behind everything, rendered as the world sky.
 - A dynamic rocket loaded from `Assets/rocket.glb`, with a held-space exhaust
-  plume and the local circular velocity `sqrt(Mu / r)`, about 282 m/s. The
+  plume and the local circular velocity `sqrt(Mu / r)`, about 1,900 m/s. The
   visible hull is a 28 x 26 x 42 box but the contact proxy is a 28-unit sphere,
   so a landing slides instead of catching a corner and tumbling. Hull mass comes
   from the hull volume and a hull density; mass does not change a landing bounce
@@ -79,8 +87,9 @@ from `V12.Gravity.OrbitalState` around the body whose sphere of influence
 currently contains the ship. Fly into the Moon's SOI and the tube recentres on
 the Moon; the telemetry, navball horizon and cinematic camera follow the same
 body. Its tube radius is constant, so a burn changes the ellipse without
-visibly fattening the line. The full multi-body field perturbs the local conic,
-so the real path and the two-body prediction slowly diverge.
+visibly fattening the line. The patched-conic field makes the local conic the
+only field acting inside the SOI, so the real path and the prediction agree
+until the ship crosses into the next frame.
 
 Central gravity applies no torque, so a body with no control keeps its
 orientation fixed in inertial space while the camera orbits the planet. The
@@ -116,25 +125,24 @@ action axis, so a fast sweep turns the camera the full distance instead of
 being capped to one small step per frame.
 
 `B` and `N` use small default impulses so a single tap does not throw the ship
-out of the demo orbit. At the 10,900-unit reference orbit the circular speed is
-281.9 m/s and escape speed is 398.8 m/s, so landing needs almost 282 taps of
-`N` at 1 m/s each. Raise `BoostDeltaV` / `BrakeDeltaV` in
+out of the demo orbit. At the 480,000-unit reference orbit the circular speed is
+1,900 m/s and escape speed is 2,686 m/s, so landing needs about 76 taps of `N`
+at 25 m/s each. Raise `BoostDeltaV` / `BrakeDeltaV` in
 `SpaceFlightInputComponent` for larger changes.
 
 The telemetry line reports velocity **relative to the planet**. The collider also
 carries that planet's surface velocity now, so the speed in telemetry and the
-speed the contact solves against agree; before that, Earth's 78 m/s orbital
-motion was missing from the contact frame and a "10 m/s" landing was a 78 m/s
-scrape.
+speed the contact solves against agree; before that, Earth's orbital motion was
+missing from the contact frame and a "10 m/s" landing was a 12 km/s scrape.
 
-The numbers are deliberately scaled for a watchable ~243-second orbit. The
+The numbers are deliberately scaled for a watchable ~1,390-second orbit. The
 floating-origin bubble below keeps the ship in local float space even though
-its global position is around 280,000 units from the Sun.
+its global position is around 9,000,000 units from the Sun.
 
 ## Floating origin
 
-The scene is Sun-centred, so the ship's true position is hundreds of thousands
-of units from the origin. `FloatingOriginComponent` on the ship keeps a local
+The scene is Sun-centred, so the ship's true position is millions of units from
+the origin. `FloatingOriginComponent` on the ship keeps a local
 float bubble: when the ship drifts more than 2,000 units from the bubble
 centre, every root transform, physics body, orbit centre and the camera move
 by `-shipPosition`, and `World.Origin` absorbs the shift in double precision.
@@ -272,14 +280,38 @@ renderer:
 The OpenXR loader errors on startup are harmless when no headset is connected;
 the host falls back to flat rendering.
 
+## Linux audio
+
+The audio backend talks to ALSA through OwnAudioSharp. If the log says the engine
+is running but the music and thrusters are silent, check which output it opened:
+ALSA's `null` PCM ("Discard all samples ...") accepts everything and plays
+nothing. Make sure PipeWire or PulseAudio is actually running (`pactl info` or
+`wpctl status`), and pass a real device when the system default cannot open:
+
+```bash
+./SpaceFlight -- --xr-mode off --audio-device pipewire
+```
+
+`--audio-device` accepts a case-insensitive substring of an ALSA device name;
+`aplay -L` lists them. The startup log warns when the chosen output is a null
+sink and prints what was enumerated.
+
 ## Tuning
 
 The solar system is assembled from independent point-mass
-`GravitySourceComponent`s, and `GravityFieldSystem` sums them every fixed tick.
-Atmosphere, oblateness, a different falloff or proper patched-conic handoff
-would go in `V12.Gravity` and the `GravitySource` snapshot passed to the
-physics integrator. The sample's SOIs are scaled gameplay values, not the real
-solar-system masses.
+`GravitySourceComponent`s. Each one carries an authored `SphereOfInfluence`, and
+the physics field uses the smallest containing frame instead of summing every
+source: inside Earth's SOI the Sun's un-cancelled pull would otherwise drag the
+ship out of its local orbit, because the planets are kinematic and do not fall
+around the Sun themselves. Outside every SOI only root sources (`SOI == 0`, the
+Sun here) act. A field with no authored SOIs still sums every source, so older
+scenes keep their behaviour.
+
+The sample's SOIs are gameplay bubbles sized between the compressed orbits, not
+literal Hill spheres. Radius and surface gravity set each body's `mu`; the
+authored SOI decides which frame the ship is in. Atmosphere, oblateness or a
+different falloff would go in `V12.Gravity` and the `GravitySource` snapshot
+passed to the physics integrator.
 
 ## credits
 

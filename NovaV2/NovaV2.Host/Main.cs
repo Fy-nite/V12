@@ -17,6 +17,8 @@ using V12.Core.Core.Interfaces;
 using V12.Core.Interfaces.Renderer;
 using V12.Core.Input;
 using V12.Core.UI;
+using V12.Hosting;
+using V12.Pak;
 using V12.WorldML;
 using V12BoxMesh = V12.Components.Renderables.BoxMesh;
 
@@ -467,6 +469,61 @@ public partial class Main : Node3D
             return new PakLocation(null, null);
         }
 
+        // Pak policy belongs to the engine-side host (dev inbox, game.json,
+        // executable-name fallback). The shell only handles Godot resource
+        // paths below, because System.IO cannot see inside the package.
+        try
+        {
+            var source = V12PakResolver.Resolve(new V12HostOptions
+            {
+                ContentDirectory = AppContext.BaseDirectory,
+                UserDirectory = ProjectSettings.GlobalizePath("user://"),
+                UseDevInbox = true,
+                UseExecutableNameFallback = true,
+            });
+
+            if (source is not null)
+            {
+                GD.Print($"[NovaV2.Host] Pak from {source.Origin}: {source.Path}");
+                return new PakLocation(source.Path, null);
+            }
+        }
+        catch (Exception ex)
+        {
+            GD.PushError($"[NovaV2.Host] Pak resolution failed: {ex.Message}");
+        }
+
+        // A descriptor shipped inside the package names its pak by data, so the
+        // executable name does not have to select the game. The dev inbox above
+        // still wins, which is what makes a pushed build replace the shipped one.
+        if (ReadEmbeddedDescriptor() is { } embeddedDescriptor)
+        {
+            if (embeddedDescriptor.Parts is { Count: > 0 })
+            {
+                // A split pak needs several streams joined; the runtime's pak
+                // path takes one. Ship a single pak inside the package.
+                GD.PushError(
+                    $"[NovaV2.Host] {V12GameDescriptor.FileName} lists split parts; " +
+                    "split paks inside the app package are not supported. Ship one pak or use the dev inbox.");
+            }
+            else if (embeddedDescriptor.Pak is { Length: > 0 } pakName)
+            {
+                string resource = pakName.StartsWith("res://", StringComparison.OrdinalIgnoreCase)
+                    ? pakName
+                    : "res://" + pakName;
+
+                if (Godot.FileAccess.FileExists(resource))
+                {
+                    GD.Print($"[NovaV2.Host] Using descriptor pak: {resource}");
+                    return new PakLocation(null, resource);
+                }
+
+                GD.PushWarning(
+                    $"[NovaV2.Host] {V12GameDescriptor.FileName} names '{pakName}', " +
+                    $"but '{resource}' is not in the package.");
+            }
+        }
+
         string executable = OS.GetExecutablePath();
         if (!string.IsNullOrWhiteSpace(executable))
         {
@@ -508,6 +565,27 @@ public partial class Main : Node3D
     }
 
     /// <summary>
+    /// <c>res://game.json</c> when the export shipped one. Godot's
+    /// <see cref="Godot.FileAccess"/> is the only way to read it inside an APK.
+    /// </summary>
+    private static V12GameDescriptor? ReadEmbeddedDescriptor()
+    {
+        try
+        {
+            string path = "res://" + V12GameDescriptor.FileName;
+            if (!Godot.FileAccess.FileExists(path))
+                return null;
+
+            return V12GameDescriptor.Parse(Godot.FileAccess.GetFileAsString(path));
+        }
+        catch (Exception ex)
+        {
+            GD.PushWarning($"[NovaV2.Host] Could not read {V12GameDescriptor.FileName}: {ex.Message}");
+            return null;
+        }
+    }
+
+    /// <summary>
     /// First <c>*.v12pak</c> at the package root, alphabetically. Android
     /// exports put content inside the APK, where this is the normal discovery
     /// path; a desktop source run can use it too.
@@ -519,8 +597,15 @@ public partial class Main : Node3D
             foreach (string file in DirAccess.GetFilesAt("res://")
                          .OrderBy(name => name, StringComparer.OrdinalIgnoreCase))
             {
-                if (file.EndsWith(".v12pak", StringComparison.OrdinalIgnoreCase))
-                    return "res://" + file;
+                if (!file.EndsWith(".v12pak", StringComparison.OrdinalIgnoreCase))
+                    continue;
+
+                // A split part is not a whole archive; without its descriptor it
+                // cannot be loaded on its own.
+                if (V12PakParts.IsPartFile(file))
+                    continue;
+
+                return "res://" + file;
             }
         }
         catch (Exception ex)

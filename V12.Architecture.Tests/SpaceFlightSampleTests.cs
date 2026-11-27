@@ -528,7 +528,7 @@ public sealed class SpaceFlightSampleTests
         };
         ship.AddComponent(new PhysicsBodyComponent { Body = fake });
 
-        var input = new SpaceFlightInputComponent { Bodies = bodies };
+        var input = new SpaceFlightInputComponent { Bodies = bodies, BoostDeltaV = 1f };
         ship.AddComponent(input);
 
         Assert.True(input.Burn(+1));
@@ -550,6 +550,38 @@ public sealed class SpaceFlightSampleTests
         var world = root.Worlds.Single(w => w.WorldName == "SpaceFlight");
         Assert.Single(world.Enumerate(), e => e.Name == "Sun");
         Assert.Single(world.Enumerate(), e => e.Name == "Ship");
+    }
+
+    [Fact]
+    public void Scene_UsesBigBodiesAndNestedPatchedConicFrames()
+    {
+        var root = new GameRoot();
+        SpaceFlightScene.Build(root);
+
+        var world = root.Worlds.Single(w => w.WorldName == "SpaceFlight");
+        var earth = world.Enumerate().Single(e => e.Name == "Earth")
+            .GetComponent<GravitySourceComponent>()!;
+        var moon = world.Enumerate().Single(e => e.Name == "Moon")
+            .GetComponent<GravitySourceComponent>()!;
+        var sun = world.Enumerate().Single(e => e.Name == "Sun")
+            .GetComponent<GravitySourceComponent>()!;
+        var jupiter = world.Enumerate().Single(e => e.Name == "Jupiter")
+            .GetComponent<GravitySourceComponent>()!;
+
+        Assert.Equal(SpaceFlightScene.PlanetRadius, earth.SurfaceRadius, 0);
+        Assert.Equal(SpaceFlightScene.EarthSoi, earth.SphereOfInfluence, 0);
+        Assert.Equal(SpaceFlightScene.MoonSoi, moon.SphereOfInfluence, 0);
+        Assert.Equal(0f, sun.SphereOfInfluence, 0);
+
+        // The Moon's frame nests inside Earth's, and the Moon's orbit does too,
+        // or the SOI handoff would fight the orbit that actually exists.
+        Assert.True(moon.SphereOfInfluence < earth.SphereOfInfluence);
+        Assert.True(SpaceFlightScene.MoonOrbitRadius < earth.SphereOfInfluence);
+
+        // The giant worlds are big, but the ordering still reads as a system.
+        Assert.True(jupiter.SurfaceRadius > earth.SurfaceRadius);
+        Assert.True(jupiter.SurfaceRadius < SpaceFlightScene.SunRadius);
+        Assert.True(moon.SurfaceRadius < earth.SurfaceRadius);
     }
 
     [Fact]

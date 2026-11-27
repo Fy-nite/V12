@@ -37,6 +37,10 @@ host directly.
 Edit `Scripts/*.cs` or `Scenes/Main.worldml` and save. The host compiles the
 sources, swaps the gamepaks, and rebuilds the world in place.
 
+For a headset, this in-place loop does not apply: see
+[`BUILDING_FOR_ANDROID.md`](BUILDING_FOR_ANDROID.md) §12, where
+`vcsdk serve --reload` pushes the packed build and relaunches the app.
+
 ## What happens on a save
 
 ### C# source change

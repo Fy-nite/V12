@@ -20,6 +20,9 @@ public sealed class PhysicsPlaygroundGamePack : IV12Gamepack
             ?? throw new InvalidOperationException("No active GameRoot when PhysicsPlayground initialized.");
 
         BasicRegistry.RegisterAll(root);
+
+        // Optional host/client mode via V12_MP_MODE; solo is unchanged.
+        root.Registry.Register("PhysicsPlaygroundNet", new PhysicsPlaygroundNet(root));
     }
 
     public void OnStart()

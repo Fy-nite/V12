@@ -24,11 +24,20 @@ Useful `GameRoot` members:
 | `TimeScale` | Slow down or speed up simulation. |
 | `SimulationTick` | Fixed-step counter. |
 | `SimulationTime` | Simulated time, not wall-clock time. |
-| `InterpolationAlpha` | Fraction of a step left, for render interpolation. |
+| `InterpolationAlpha` | Fraction of a step left, consumed by render interpolation. |
+| `RenderInterpolation` | Host opt-in: record and present interpolated poses. NovaV2 enables it. |
 | `OnFixedUpdate` | Runs after worlds and services update. |
 | `Random` | Seeded gameplay random source. |
 | `SetSimulationSeed(ulong)` | Reset the random sequence. |
 | `ResetSimulation(ulong)` | Reset the clock and random sequence. |
+
+With `RenderInterpolation` on, capture reads `Element.RenderWorldTransform`:
+position, rotation and scale are slerped between the last two fixed-step poses
+using `InterpolationAlpha`. Gameplay reads `WorldTransform`, the exact simulated
+pose, and `SceneQuery` still picks against it. The trade is up to one fixed step
+of visual latency for smooth motion on a display faster than the simulation.
+NovaV2 turns it on by default; set `NovaV2RuntimeOptions.RenderInterpolation` to
+`false` to restore the old capture behaviour.
 
 ## 2. Determinism rules
 
@@ -159,29 +168,114 @@ Keep per-tick work deterministic and avoid host-frame assumptions.
 
 ## 6. SyncValue
 
-`SyncValue<T>` is the explicit value-level sync channel. BSON automatically
-ignores `ISyncValue` and delegate members, so no `[BsonIgnore]` is needed.
+Two ways to replicate a value, and they coexist on the same component.
+
+**`[Sync]` on a field or property** — the no-plumbing path. The binder creates one
+`SyncValue<T>` per member, polls it on the peer that simulates the element, and
+writes remote updates back. A plain assignment is enough:
+
+```csharp
+public sealed class DoorComponent : ComponentBase
+{
+    [Sync] public float OpenAmount;          // key: OpenAmount
+    [Sync("state/locked")] public bool Locked;
+    public float AnimationCache;             // local
+}
+```
+
+**`SyncValue<T>` explicitly** — when you want to decide when a large or derived
+value is sent. You own the write-back via `OnRemoteApplied`. Marked `[Sync]` too
+so tooling sees it:
 
 ```csharp
 [Sync]
 public SyncValue<float>? HealthValue { get; set; }
 ```
 
-That is enough for BSON and WorldML serialization to skip it. Use
-`SyncAutoCreator.EnsureSyncValues` on attach when you want the value created
-automatically.
+BSON automatically ignores `ISyncValue` and delegate members, so no `[BsonIgnore]`
+is needed. Use `SyncAutoCreator.EnsureSyncValues` on attach when you want the
+value created automatically.
 
-## 7. Networking quick notes
+Rule of thumb: `[Sync]` for ordinary user-facing state, `SyncValue<T>` for large
+or explicitly-timed values. Neither is for meshes, textures or terrain — those go
+through the content/asset path. Full details in
+[`../V12-Engine/Docs/SYNC_VALUE_GUIDE.md`](../V12-Engine/Docs/SYNC_VALUE_GUIDE.md).
+
+## 7. The simulating user
+
+Every element has exactly one **simulating user**. The host simulates everything
+by default; a player becomes the simulating user of an object it holds, wears, or
+otherwise drives. The peer simulating an element runs its components; every other
+peer treats the element as a replica and only applies what arrives.
+
+Full call sequence, order of operations, physics behaviour and current gaps:
+[`SIMULATING_USER.md`](SIMULATING_USER.md).
+
+This is why a grabbed object is smooth and a host prop is authoritative: only one
+peer steps it, and the result is replicated.
+
+```csharp
+// Host: hand the object to a player, or pass 0 to take it back.
+gameLink.AssignSimulatingUser(element, playerId);
+
+// Client: which player am I? Set this once from your welcome message.
+session.LocalPlayerId = welcome.PlayerId;
+
+// Client: ask for a grabbed object, and give it back on release.
+gameLink.RequestSimulatingUser(element);
+gameLink.ReleaseSimulatingUser(element);
+```
+
+`AssignSimulatingUser` applies locally and broadcasts `EntityAuthority`, so the
+new owner starts simulating and every other peer stops. A claim is granted when
+the element is unowned or already yours (first claim wins); a denied claim is not
+answered. `PickupSystem` and `GrabberComponent` already claim and release for you.
+A client that disconnects hands its elements back to the host automatically.
+The assignment is keyed by `element.Uid`, so an element without a stable uid
+cannot be delegated.
+
+A component picks where it runs with `SimulationScope`:
+
+| Scope | Runs on |
+|---|---|
+| `Simulator` (default) | the peer simulating the element — host, or the owning client |
+| `Replica` | peers that do **not** simulate the element (interpolation, HUD, local prediction) |
+| `Everywhere` | every peer, even those that do not simulate it (validation, compute) |
+
+`ScriptComponent` and Contract (`.ct`) mod components are `Simulator`, so the VM
+runs for whoever owns the object and nowhere else.
+
+Rules:
+
+- A client only writes what it simulates. `SyncValue<T>` writes are relayed
+  last-write-wins, but ticking is the real gate: a well-behaved client cannot
+  produce a write for an object it does not simulate.
+- `EntityAuthorityStore.CanWrite` is the policy check for enforcing that against
+  a modifier; the host still arbitrates. It is not wired into the value relay
+  yet.
+- `WorldSession.SimulateRemoteWorld` (default `true`) disables the client
+  tick pass for a session when you want a pure viewer.
+- The host's tick path stays free when nothing is delegated: the ownership lookup
+  is skipped entirely until the first assignment.
+- Grab/release does not drive assignment automatically yet. A game calls
+  `AssignSimulatingUser` on grab and passes 0 on release.
+
+## 8. Networking quick notes
 
 - `DirtyTracker` handles component and element state.
 - `SyncValue<T>` handles individual hot values.
+- `SyncValue<T>` writes are not host-only. `NetworkWorldLink` relays a client's
+  value batch to the other peers (`RelayRemoteValueWrites`, default on) and
+  conflicts resolve last-write-wins on a `(clock, writerId)` stamp. Permission is
+  not enforced yet, so use it in trusted sessions until the per-entity
+  `CanWrite` gate lands (`Docs/PEER_HOSTING_AND_AUTHORITY.md` §5).
 - `World.Id` is a stable `Guid`.
 - `World.FindElementById` scopes a lookup to one world.
 - `WorldSyncDTO`, element updates, component snapshots, and removals carry
   `WorldId`.
 - Use `Uid` or selector references when an element must survive renames.
 
-## 8. Common recipes
+## 9. Common recipes
 
 Spawn a box:
 
@@ -495,7 +589,7 @@ asset model.
 
 
 
-## 9. Pitfalls
+## 10. Pitfalls
 
 - Do not add a TransformComponent. It no longer exists.
 - Do not use render delta in gameplay.
@@ -505,10 +599,11 @@ asset model.
 - Do not add `[BsonIgnore]` to `SyncValue<T>` properties.
 - Do not rely on structural changes made mid-tick being visible in the same tick.
 
-## 10. Related docs
+## 11. Related docs
 
 - [`CHANGELOG.md`](CHANGELOG.md)
 - [`../V12-Engine/Docs/SIMULATION_TIMING.md`](../V12-Engine/Docs/SIMULATION_TIMING.md)
 - [`../V12-Engine/Docs/SYNC_VALUE_GUIDE.md`](../V12-Engine/Docs/SYNC_VALUE_GUIDE.md)
 - [`../V12-Engine/Docs/WORLDML_BINDINGS.md`](../V12-Engine/Docs/WORLDML_BINDINGS.md)
 - [`FEDERATED_INSTANCES.md`](FEDERATED_INSTANCES.md)
+- [`SCENE_SWITCHING.md`](SCENE_SWITCHING.md)

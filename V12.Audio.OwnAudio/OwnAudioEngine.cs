@@ -158,6 +158,7 @@ public sealed class OwnAudioEngine : IAudioEngine
         SafeAudioEngine? engine = null;
         MultiTrackSession? session = null;
         SafeAudioOutputStream? output = null;
+        SafeAudioDevice? selectedOutput = null;
 
         try
         {
@@ -169,24 +170,63 @@ public sealed class OwnAudioEngine : IAudioEngine
                 return;
 
             var outputs = engine.EnumerateOutputDevices();
-            var selectedOutput = SelectDevice(outputs, _options.OutputDeviceName, preferOutput: true);
+            var outputCandidates = BuildDeviceCandidates(
+                outputs, _options.OutputDeviceName, preferOutput: true);
 
             SafeAudioDevice? selectedInput = null;
             if (_options.EnableInput)
             {
                 var inputs = engine.EnumerateInputDevices();
-                selectedInput = SelectDevice(inputs, _options.InputDeviceName, preferOutput: false);
+                selectedInput = BuildDeviceCandidates(
+                    inputs, _options.InputDeviceName, preferOutput: false).FirstOrDefault();
             }
 
-            session = new MultiTrackSession(
-                _options.SampleRate,
-                (ushort)Math.Clamp(_options.Channels, 1, 256));
-            session.MasterGain = Math.Clamp(_options.MasterVolume, 0f, 1f);
+            // Opening the output consumes the session's native mixer, even when the
+            // device refuses the stream, so every candidate gets its own session.
+            // On ALSA the system default is frequently broken (no sound server, a
+            // dmix slave that will not open) while a real card still plays, and
+            // stopping at the first failure would turn that into a dead engine.
+            Exception? lastError = null;
+            foreach (var candidate in outputCandidates)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+
+                MultiTrackSession? attempt = null;
+                try
+                {
+                    attempt = new MultiTrackSession(
+                        _options.SampleRate,
+                        (ushort)Math.Clamp(_options.Channels, 1, 256));
+                    attempt.MasterGain = Math.Clamp(_options.MasterVolume, 0f, 1f);
+
+                    var attemptOutput = attempt.OpenOutput(engine, candidate, _options.BufferSize);
+
+                    session = attempt;
+                    output = attemptOutput;
+                    selectedOutput = candidate;
+                    attempt = null;
+                    break;
+                }
+                catch (Exception ex) when (ex is not OperationCanceledException)
+                {
+                    lastError = ex;
+                }
+                finally
+                {
+                    try { attempt?.Dispose(); } catch { }
+                }
+            }
+
+            if (session is null || output is null)
+            {
+                string failure = DescribeOutputFailure(outputs, _options.OutputDeviceName);
+                throw lastError is null
+                    ? new AudioEngineException(failure)
+                    : new AudioEngineException(failure, lastError);
+            }
 
             if (_disposed)
                 return;
-
-            output = session.OpenOutput(engine, selectedOutput, _options.BufferSize);
 
             lock (_sync)
             {
@@ -216,29 +256,80 @@ public sealed class OwnAudioEngine : IAudioEngine
         }
     }
 
-    private static SafeAudioDevice? SelectDevice(
+    /// <summary>
+    /// Orders the devices this backend may open, best first. An explicit name wins
+    /// outright; otherwise real hardware is preferred over placeholder sinks, and
+    /// the host's default comes before the rest. On ALSA the enumeration starts
+    /// with the <c>null</c> PCM ("Discard all samples ..."), so taking the first
+    /// entry blindly is what makes a broken default look like a working engine
+    /// that produces no sound.
+    /// </summary>
+    private static IReadOnlyList<SafeAudioDevice?> BuildDeviceCandidates(
         IReadOnlyList<SafeAudioDevice> devices,
-        string? name,
+        string? requestedName,
         bool preferOutput)
     {
-        if (devices.Count == 0)
-            return null;
-
-        if (!string.IsNullOrWhiteSpace(name))
+        if (!string.IsNullOrWhiteSpace(requestedName))
         {
             var exact = devices.FirstOrDefault(d =>
-                string.Equals(d.Name, name, StringComparison.OrdinalIgnoreCase));
+                string.Equals(d.Name, requestedName, StringComparison.OrdinalIgnoreCase));
             if (exact is not null)
-                return exact;
+                return new SafeAudioDevice?[] { exact };
 
             var contains = devices.FirstOrDefault(d =>
-                d.Name.Contains(name, StringComparison.OrdinalIgnoreCase));
+                d.Name.Contains(requestedName, StringComparison.OrdinalIgnoreCase));
             if (contains is not null)
-                return contains;
+                return new SafeAudioDevice?[] { contains };
         }
 
-        return devices.FirstOrDefault(d => preferOutput ? d.IsDefaultOutput : d.IsDefaultInput)
-            ?? devices[0];
+        bool usable(SafeAudioDevice d) => preferOutput ? d.MaxOutputChannels > 0 : d.MaxInputChannels > 0;
+        bool isDefault(SafeAudioDevice d) => preferOutput ? d.IsDefaultOutput : d.IsDefaultInput;
+        bool isReal(SafeAudioDevice d) => usable(d) && !AudioDeviceInfo.IsSilentDeviceName(d.Name);
+
+        var candidates = new List<SafeAudioDevice?>(devices.Count);
+
+        foreach (var device in devices)
+            if (isReal(device) && isDefault(device))
+                candidates.Add(device);
+
+        foreach (var device in devices)
+            if (isReal(device) && !isDefault(device) && !candidates.Contains(device))
+                candidates.Add(device);
+
+        // Nothing but placeholder sinks (or an empty enumeration) is left. Keep a
+        // route open so callers still get a running engine, and let the host warn
+        // that the output is silent rather than pretending the device switch failed.
+        if (candidates.Count == 0)
+        {
+            foreach (var device in devices)
+                if (usable(device) && isDefault(device))
+                    candidates.Add(device);
+
+            foreach (var device in devices)
+                if (usable(device) && !candidates.Contains(device))
+                    candidates.Add(device);
+        }
+
+        if (candidates.Count == 0)
+            candidates.Add(null); // system default
+
+        return candidates;
+    }
+
+    private static string DescribeOutputFailure(
+        IReadOnlyList<SafeAudioDevice> devices,
+        string? requestedName)
+    {
+        string requested = string.IsNullOrWhiteSpace(requestedName) ? "(system default)" : $"'{requestedName}'";
+        string available = devices.Count == 0
+            ? "none enumerated"
+            : string.Join(", ", devices.Select(d =>
+                AudioDeviceInfo.IsSilentDeviceName(d.Name) ? $"{d.Name} [silent]" : d.Name));
+
+        return $"The audio engine could not open an output device (requested {requested}). " +
+               $"Available: {available}. On Linux check that PipeWire/PulseAudio is running and that " +
+               "ALSA's default PCM opens ('speaker-test -c 2' or 'aplay -L'); set " +
+               "AudioEngineOptions.OutputDeviceName to open one of the listed devices directly.";
     }
 
     public Task StopAsync(CancellationToken cancellationToken = default)

@@ -20,44 +20,69 @@ namespace SpaceFlight;
 /// </summary>
 public static class SpaceFlightScene
 {
-    // Visual scale: a 9,400-unit planet and a 10,900-unit parking orbit stay
-    // inside float32's comfortable range and give a ~243 s orbit. The EcoVR
-    // working planet in Docs/EcoVR-Planet-Design-Doc.docx is 2,400 km radius at
-    // 1 g; the full-scale version needs the double-precision world /
-    // floating-origin layer described there. V12.Gravity already keeps the
-    // orbital maths in double.
-    public const float PlanetRadius = 9400f;
+    // Visual scale: the near field is metres (the hull is 28 x 26 x 42, the
+    // chase camera starts 180 units out), while heliocentric distances are
+    // compressed so the whole system stays inside a float32 bubble. Planet
+    // radii use the same "big world" scale as the hull so each body reads as a
+    // world instead of a dot when the cinematic camera visits it. Earth is
+    // 420 km in this scale; the Sun is compressed to 2,200 km so it still
+    // dominates the inner view without swallowing Mercury's 3,000 km orbit.
+    public const float PlanetRadius = 420_000f;
     public const float SurfaceGravity = 9.81f;
-    public const float ParkingAltitude = 1500f;
+    public const float ParkingAltitude = 60_000f;
     public const float OrbitRadius = PlanetRadius + ParkingAltitude; // from Earth's centre
 
-    public const float SunRadius = 9099f;
-    public const float SunSurfaceGravity = 20f;
-
-    // The minor planets use a visual boost instead of literal relative sizes so
-    // they read as worlds rather than dots when the chase camera visits them.
-    // Earth stays at PlanetRadius because the ship orbit, parking altitude and
-    // camera framing are tuned around it.
-    public const float MinorPlanetScale = 4f;
+    public const float SunRadius = 2_200_000f;
+    public const float SunSurfaceGravity = 274f;
 
     // Multiplies every heliocentric distance. Planet sizes are untouched.
-    public const float DistanceScale = 30f;
+    public const float DistanceScale = 1_000f;
 
-    public const float MercuryOrbit = 3000f * DistanceScale;
-    public const float VenusOrbit = 5500f * DistanceScale;
-    public const float EarthOrbitRadius = 9000f * DistanceScale;
-    public const float MarsOrbit = 12500f * DistanceScale;
-    public const float JupiterOrbit = 18000f * DistanceScale;
-    public const float SaturnOrbit = 24000f * DistanceScale;
-    public const float UranusOrbit = 30000f * DistanceScale;
-    public const float NeptuneOrbit = 36000f * DistanceScale;
+    public const float MercuryOrbit = 4_000f * DistanceScale;
+    public const float VenusOrbit = 5_500f * DistanceScale;
+    public const float EarthOrbitRadius = 9_000f * DistanceScale;
+    public const float MarsOrbit = 12_500f * DistanceScale;
+    public const float JupiterOrbit = 18_000f * DistanceScale;
+    public const float SaturnOrbit = 24_000f * DistanceScale;
+    public const float UranusOrbit = 30_000f * DistanceScale;
+    public const float NeptuneOrbit = 36_000f * DistanceScale;
+
+    // Planet radii are a stylised "big world" set: real ordering, but the
+    // giants are compressed so they do not overlap their compressed orbits.
+    public const float MercuryRadius = 180_000f;
+    public const float VenusRadius = 400_000f;
+    public const float MarsRadius = 260_000f;
+    public const float JupiterRadius = 1_800_000f;
+    public const float SaturnRadius = 1_500_000f;
+    public const float UranusRadius = 700_000f;
+    public const float NeptuneRadius = 680_000f;
+
+    // Authored patched-conic frames. These are gameplay bubbles sized to sit
+    // between neighbouring orbits, not literal Hill spheres: the compressed
+    // orbits and oversized planets would overlap if the SOI were derived from
+    // the raw mass ratio. They still nest correctly (Moon inside Earth) and
+    // the physics field uses them to decide which body owns the ship.
+    public const float MercurySoi = 500_000f;
+    public const float VenusSoi = 1_000_000f;
+    public const float EarthSoi = 1_700_000f;
+    public const float MarsSoi = 1_400_000f;
+    public const float JupiterSoi = 2_200_000f;
+    public const float SaturnSoi = 2_600_000f;
+    public const float UranusSoi = 2_600_000f;
+    public const float NeptuneSoi = 2_600_000f;
 
     // Keeps the orbit rings visible at the larger scale.
-    public const float OrbitRingThickness = 5.5f;
+    public const float OrbitRingThicknessFraction = 0.0008f;
 
-    public const float MoonRadius = 2560f;            // ~0.27 x Earth, like irl
-    public const float MoonSurfaceGravity = 9f;
-    public const float MoonOrbitRadius = PlanetRadius * 8f; // irl is ~60x, compressed
+    public const float MoonRadius = 115_000f;          // ~0.27 x Earth, like irl
+    public const float MoonSurfaceGravity = 1.62f;
+    public const float MoonOrbitRadius = PlanetRadius * 3.5f; // irl is ~60x, compressed
+    public const float MoonSoi = 450_000f;
+
+    // Constant world-space thickness for the live orbit tube. It is sized for
+    // the initial parking orbit, so a burn changes the conic without visibly
+    // fattening the line.
+    public const float OrbitLineHalfWidth = 900f;
 
     public static readonly PlanetProfile VisualPlanet =
         new("Terra", PlanetRadius, SurfaceGravity);
@@ -191,7 +216,8 @@ public static class SpaceFlightScene
             new Vector3(1f),
             "v12://Assets/2k_earth_daymap.jpg",
             gravityBodies,
-            SunMu);
+            SunMu,
+            EarthSoi);
 
         var moon = AddPlanet(
             world,
@@ -200,68 +226,70 @@ public static class SpaceFlightScene
             EarthStart + new Vector3(MoonOrbitRadius, 0f, 0f),
             new Vector3(0.55f, 0.55f, 0.58f),
             "v12://Assets/2k_moon.jpg",
-            bodies: gravityBodies);
+            bodies: gravityBodies,
+            sphereOfInfluence: MoonSoi);
         moon.AddComponent(new PlanetOrbitComponent
         {
             CenterElement = earth,
             Radius = MoonOrbitRadius,
             AngularSpeed = MoonOrbitAngularSpeed,
         });
-        var moonSource = moon.GetComponent<GravitySourceComponent>()!;
-        gravityBodies.Add(
-            moonSource,
-            OrbitalMechanics.SphereOfInfluence(Mu, MoonProfile.Mu, MoonOrbitRadius));
 
         AddOrbitingPlanet(
             world,
             "Mercury",
-            new PlanetProfile("Mercury", 100f * MinorPlanetScale, 5f),
+            new PlanetProfile("Mercury", MercuryRadius, 3.7f),
             MercuryOrbit,
             new Vector3(0.52f, 0.49f, 0.45f),
             null,
             gravityBodies,
-            SunMu);
+            SunMu,
+            MercurySoi);
 
         AddOrbitingPlanet(
             world,
             "Venus",
-            new PlanetProfile("Venus", 160f * MinorPlanetScale, 4.5f),
+            new PlanetProfile("Venus", VenusRadius, 8.87f),
             VenusOrbit,
             new Vector3(0.80f, 0.68f, 0.42f),
             null,
             gravityBodies,
-            SunMu);
+            SunMu,
+            VenusSoi);
 
         AddOrbitingPlanet(
             world,
             "Mars",
-            new PlanetProfile("Mars", 280f * MinorPlanetScale, 3.71f),
+            new PlanetProfile("Mars", MarsRadius, 3.71f),
             MarsOrbit,
             new Vector3(0.62f, 0.28f, 0.16f),
             "v12://Assets/2k_mars.jpg",
             gravityBodies,
-            SunMu);
+            SunMu,
+            MarsSoi);
 
         AddOrbitingPlanet(
             world,
             "Jupiter",
-            new PlanetProfile("Jupiter", 500f * MinorPlanetScale, 5f),
+            new PlanetProfile("Jupiter", JupiterRadius, 24.79f),
             JupiterOrbit,
             new Vector3(0.68f, 0.54f, 0.38f),
             "v12://Assets/2k_jupiter.jpg",
             gravityBodies,
-            SunMu);
+            SunMu,
+            JupiterSoi);
 
-        var saturnRadius = 420f * MinorPlanetScale;
+        var saturnRadius = SaturnRadius;
         var saturn = AddOrbitingPlanet(
             world,
             "Saturn",
-            new PlanetProfile("Saturn", saturnRadius, 3f),
+            new PlanetProfile("Saturn", saturnRadius, 10.44f),
             SaturnOrbit,
             new Vector3(0.72f, 0.64f, 0.46f),
             "v12://Assets/2k_saturn.jpg",
             gravityBodies,
-            SunMu);
+            SunMu,
+            SaturnSoi);
         var saturnTransform = saturn.LocalTransform;
         saturnTransform.Rotation = Quaternion.CreateFromAxisAngle(Vector3.UnitZ, 0.24f);
         saturn.LocalTransform = saturnTransform;
@@ -270,22 +298,24 @@ public static class SpaceFlightScene
         AddOrbitingPlanet(
             world,
             "Uranus",
-            new PlanetProfile("Uranus", 240f * MinorPlanetScale, 2f),
+            new PlanetProfile("Uranus", UranusRadius, 8.69f),
             UranusOrbit,
             new Vector3(0.52f, 0.74f, 0.78f),
             "v12://Assets/2k_uranus.jpg",
             gravityBodies,
-            SunMu);
+            SunMu,
+            UranusSoi);
 
         AddOrbitingPlanet(
             world,
             "Neptune",
-            new PlanetProfile("Neptune", 240f * MinorPlanetScale, 2.5f),
+            new PlanetProfile("Neptune", NeptuneRadius, 11.15f),
             NeptuneOrbit,
             new Vector3(0.20f, 0.36f, 0.78f),
             "v12://Assets/2k_neptune.jpg",
             gravityBodies,
-            SunMu);
+            SunMu,
+            NeptuneSoi);
 
         // The visible hull is a 28 x 26 x 42 rocket, but the contact proxy is a
         // 28-unit sphere. A box collider catches a corner on the curved surface
@@ -340,7 +370,10 @@ public static class SpaceFlightScene
             Bodies = gravityBodies,
         });
 
-        var attitude = new ProgradeAttitudeComponent();
+        var attitude = new ProgradeAttitudeComponent
+        {
+            Bodies = gravityBodies,
+        };
         ship.AddComponent(attitude);
 
         var input = new SpaceFlightInputComponent
@@ -445,7 +478,7 @@ public static class SpaceFlightScene
             Ship = ship,
             Bodies = gravityBodies,
             Segments = 192,
-            HalfWidth = 1.4f,
+            HalfWidth = OrbitLineHalfWidth,
         };
         liveOrbitElement.AddComponent(liveOrbit);
         liveOrbitElement.AddComponent(new MeshRenderer { Mesh = liveOrbit });
@@ -473,9 +506,9 @@ public static class SpaceFlightScene
         camera.AddComponent(new CameraComponent
         {
             IsCurrent = true,
-            Fov = 50f,
+            Fov = 70f,
             NearClip = 5f,
-            FarClip = 2_500_000f,
+            FarClip = 100_000_000f,
         });
         var cameraRig = new OrbitCameraComponent
         {
@@ -486,9 +519,11 @@ public static class SpaceFlightScene
             Bodies = gravityBodies,
             FollowDistance = 180f,
             FollowHeight = 50f,
+            ReferenceRadius = 1_000f,
         };
         camera.AddComponent(cameraRig);
         world.AddElement(camera);
+        liveOrbit.Camera = cameraRig;
 
         // A small 3D navball fixed in camera space. The ball is a plain sphere;
         // the horizon and meridian rings are oriented from the ship's own axes,
@@ -498,8 +533,11 @@ public static class SpaceFlightScene
         {
             Ship = ship,
             Bodies = gravityBodies,
-            LocalPosition = new Vector3(0.52f, -0.36f, -1.6f),
-            LocalScale = 0.40f,
+            // Kept well past the 5-unit near clip. The component's marker math
+            // is depth/scale invariant, so this is the same instrument at the
+            // same screen size, just not clipped by the camera plane.
+            LocalPosition = new Vector3(1.95f, -1.35f, -6f),
+            LocalScale = 1.5f,
         };
         navball.AddComponent(navballComponent);
         navball.LocalTransform = new TRS
@@ -614,8 +652,13 @@ public static class SpaceFlightScene
             $"[SpaceFlight] visual R={PlanetRadius} mu={Mu:G6}; " +
             $"orbit r={OrbitRadius} v={CircularSpeed:F2} T={OrbitPeriod:F1}s");
         Console.WriteLine(
-            $"[SpaceFlight] Earth SOI={OrbitalMechanics.SphereOfInfluence(SunMu, Mu, EarthOrbitRadius):F0} " +
-            $"moon a={MoonOrbitRadius} moon SOI={OrbitalMechanics.SphereOfInfluence(Mu, MoonProfile.Mu, MoonOrbitRadius):F0}");
+            $"[SpaceFlight] patched conic: Earth SOI={EarthSoi:F0} " +
+            $"(hill={OrbitalMechanics.SphereOfInfluence(SunMu, Mu, EarthOrbitRadius):F0}) " +
+            $"moon a={MoonOrbitRadius} SOI={MoonSoi:F0} " +
+            $"(hill={OrbitalMechanics.SphereOfInfluence(Mu, MoonProfile.Mu, MoonOrbitRadius):F0})");
+        Console.WriteLine(
+            $"[SpaceFlight] heliocentric: Sun mu={SunMu:G6} " +
+            $"Earth v={EarthOrbitSpeed:F1} T={2 * MathF.PI / EarthOrbitAngularSpeed:F0}s");
         Console.WriteLine(
             $"[SpaceFlight] doc target: {docPlanet.Name} " +
             $"R={docPlanet.Radius / 1000:F0} km, g={docPlanet.SurfaceGravity:F2}, " +
@@ -665,7 +708,8 @@ public static class SpaceFlightScene
         Vector3 colour,
         string? texture,
         GravityBodySet bodies,
-        float parentMu)
+        float parentMu,
+        float sphereOfInfluence)
     {
         var planet = AddPlanet(
             world,
@@ -674,7 +718,8 @@ public static class SpaceFlightScene
             new Vector3(orbitRadius, 0f, 0f),
             colour,
             texture,
-            bodies: bodies);
+            bodies: bodies,
+            sphereOfInfluence: sphereOfInfluence);
 
         planet.AddComponent(new PlanetOrbitComponent
         {
@@ -684,11 +729,10 @@ public static class SpaceFlightScene
                 parentMu / (orbitRadius * orbitRadius * orbitRadius)),
         });
 
-        var source = planet.GetComponent<GravitySourceComponent>()!;
-        bodies.Add(
-            source,
-            OrbitalMechanics.SphereOfInfluence(parentMu, profile.Mu, orbitRadius));
-        AddOrbitRing(world, orbitRadius, OrbitRingThickness);
+        AddOrbitRing(
+            world,
+            orbitRadius,
+            MathF.Max(80f, orbitRadius * OrbitRingThicknessFraction));
         return planet;
     }
 
@@ -726,7 +770,8 @@ public static class SpaceFlightScene
         float roughness = 0.85f,
         bool gravity = true,
         GravityBodySet? bodies = null,
-        bool unlit = false)
+        bool unlit = false,
+        float sphereOfInfluence = 0f)
     {
         // Solid sphere collider plus gravity. Impacts are pure physics now; the
         // ship's derived mass and the contact material decide the response.
@@ -772,7 +817,7 @@ public static class SpaceFlightScene
         }
         planet.AddComponent(material);
 
-        var source = GravitySourceComponent.FromProfile(profile);
+        var source = GravitySourceComponent.FromProfile(profile, sphereOfInfluence);
         source.Enabled = gravity;
         planet.AddComponent(source);
         bodies?.Add(source);

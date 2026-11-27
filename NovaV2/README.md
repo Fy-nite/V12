@@ -19,6 +19,12 @@ Godot --path NovaV2/NovaV2.Host --xr-mode off -- --pak <file.v12pak>
 attached; it does not disable NovaV2's XR service, which stays available for
 `NovaV2Runtime.EnableXR()`.
 
+`--audio-device <name>` selects the audio output device (case-insensitive, a
+substring is accepted). It is the fallback when the system default is wrong or
+discarded: on Linux, ALSA can enumerate a `null` sink while the real card is
+still openable, and the startup warning lists the names if none can be
+resolved.
+
 For a packaged desktop game, rename the exported executable to the game name and
 put `<game>.v12pak` beside it. No arguments are needed.
 

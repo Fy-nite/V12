@@ -1,4 +1,6 @@
 using Godot;
+using System;
+using System.Diagnostics;
 using V12.Core;
 using V12.Pak;
 
@@ -107,7 +109,58 @@ public partial class NovaV2HostNode : Node3D
 
     public override void _Process(double delta)
     {
+        long started = Stopwatch.GetTimestamp();
         _runtime?.Tick((float)delta);
+        TrackFrame(delta, started);
+    }
+
+    // ── Opt-in frame telemetry ──────────────────────────────────────────────
+    // Set V12_FPS_LOG=1 to log average/max CPU time, wall frame time and
+    // managed allocation per frame every two seconds. Off by default, so a
+    // normal build pays nothing but a boolean check per frame.
+    private readonly bool _frameTelemetry =
+        System.Environment.GetEnvironmentVariable("V12_FPS_LOG") == "1";
+    private int _telemetryFrames;
+    private double _telemetryCpuMs;
+    private double _telemetryCpuMaxMs;
+    private double _telemetryWallMs;
+    private double _telemetryWallMaxMs;
+    private long _telemetryAllocStart;
+
+    private void TrackFrame(double delta, long started)
+    {
+        if (!_frameTelemetry)
+            return;
+
+        double cpuMs = Stopwatch.GetElapsedTime(started).TotalMilliseconds;
+        double wallMs = delta * 1000.0;
+
+        if (_telemetryAllocStart == 0)
+            _telemetryAllocStart = GC.GetTotalAllocatedBytes(precise: false);
+
+        _telemetryFrames++;
+        _telemetryCpuMs += cpuMs;
+        _telemetryCpuMaxMs = Math.Max(_telemetryCpuMaxMs, cpuMs);
+        _telemetryWallMs += wallMs;
+        _telemetryWallMaxMs = Math.Max(_telemetryWallMaxMs, wallMs);
+
+        if (_telemetryFrames < 120)
+            return;
+
+        long allocated = GC.GetTotalAllocatedBytes(precise: false);
+        double allocPerFrame = (allocated - _telemetryAllocStart) / (double)_telemetryFrames;
+
+        GD.Print(
+            $"[FPS] cpu avg {_telemetryCpuMs / _telemetryFrames:F2} ms " +
+            $"(max {_telemetryCpuMaxMs:F2})  wall avg {_telemetryWallMs / _telemetryFrames:F2} ms " +
+            $"(max {_telemetryWallMaxMs:F2})  alloc {allocPerFrame / 1024.0:F1} KB/frame");
+
+        _telemetryFrames = 0;
+        _telemetryCpuMs = 0;
+        _telemetryCpuMaxMs = 0;
+        _telemetryWallMs = 0;
+        _telemetryWallMaxMs = 0;
+        _telemetryAllocStart = allocated;
     }
 
     public override void _Input(InputEvent @event)
@@ -210,6 +263,7 @@ public partial class NovaV2HostNode : Node3D
             LockMouseOnStart = LockMouseOnStart,
             EnableXR = EnableXR,
             StartXR = StartXR,
+            AudioDeviceName = CommandLineValue("--audio-device"),
         };
 
         // Godot keeps everything after "--" out of GetCmdlineArgs, so user

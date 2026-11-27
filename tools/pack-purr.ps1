@@ -53,10 +53,17 @@ $projects = @(
     @{ Path = "V12.Rendering/V12.Rendering.csproj"; PackageId = "Finite.V12.Rendering" }
     @{ Path = "V12.Audio/V12.Audio.csproj"; PackageId = "Finite.V12.Audio" }
     @{ Path = "V12.Audio.OwnAudio/V12.Audio.OwnAudio.csproj"; PackageId = "Finite.V12.Audio.OwnAudio" }
+    @{ Path = "V12.Physics/V12.Physics.csproj"; PackageId = "Finite.V12.Physics" }
+    @{ Path = "V12.Gravity/V12.Gravity.csproj"; PackageId = "Finite.V12.Gravity" }
     @{ Path = "V12.Basic/V12.Basic.csproj"; PackageId = "Finite.V12.Basic" }
+    @{ Path = "V12.Basic/libs/V12.Bindings/V12.Bindings.csproj"; PackageId = "V12.Bindings" }
+    @{ Path = "V12.Voxel/V12.Voxel.csproj"; PackageId = "Finite.V12.Voxel" }
+    @{ Path = "V12.Skeletal/V12.Skeletal.csproj"; PackageId = "Finite.V12.Skeletal" }
     @{ Path = "V12.Paper/V12.Paper.csproj"; PackageId = "Finite.V12.Paper" }
     @{ Path = "V12.Editor/V12.Editor.csproj"; PackageId = "Finite.V12.Editor" }
     @{ Path = "V12.Pak/V12.Pak.csproj"; PackageId = "Finite.V12.Pak" }
+@{ Path = "V12.Host/V12.Host.csproj"; PackageId = "Finite.V12.Host" }
+    @{ Path = "V12.All/V12.All.csproj"; PackageId = "Finite.V12.All" }
     @{ Path = "Nova/Nova.Shared/Nova.Shared.csproj"; PackageId = "Finite.V12.Renderers.Nova.Shared" }
     @{ Path = "V12-Sdk/V12.Sdk.csproj"; PackageId = "Finite.V12.Sdk" }
     # Library-only projects (for example renderer hosts) are not packed as NuGet.

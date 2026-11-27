@@ -225,7 +225,12 @@ public sealed class OrbitCameraComponent : ScriptableComponent, IFloatingOriginA
                 CaptureFollowBase();
 
             var body = FollowTarget.GetComponent<PhysicsBodyComponent>()?.Body;
-            var target = body?.Position ?? FollowTarget.LocalTransform.Position;
+            // Scripts run before the physics service in the fixed step, so the
+            // body pose is still the previous step's. Predict one step ahead so
+            // a fast orbital pass does not leave the camera trailing the ship.
+            var target = body != null
+                ? body.Position + body.LinearVelocity * deltaTime
+                : FollowTarget.LocalTransform.Position;
 
             // A plain spherical orbit around the ship. Yaw is around world up
             // and pitch is elevation; there is no frame that chases velocity or

@@ -126,6 +126,30 @@ Read `RendererContract.md` before touching `Nova` or `V12.Monogame`.
 - Use `SceneQuery` for picking, not mesh readback.
 - Key GPU and node caches on array identity and element ids.
 
+Installed renderer slots (`~/.purr/renderers/<id>/<rid>`) supply the V12
+assemblies that gamepaks resolve at load time. After adding or changing an
+engine package, run:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File tools/sync-v12.ps1
+```
+
+It packs every auto-discovered root-level `Finite.V12.*` module through
+`vcsdk sync` and copies any missing package assembly into every renderer slot,
+so a new package needs no SDK or renderer-list edit. `-DryRun` previews,
+`-Force` overwrites, and `-Renderer <id>` limits the install. Re-export the
+renderer with `tools/install-novav2-renderer.ps1` only when its own host
+assemblies changed.
+
+Verify with:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File tools/check-v12-deps.ps1 -Renderer novav2 -IncludePackages
+```
+
+`vcsdk sync --dev` updates the NuGet feed; it does not refresh an installed
+renderer slot.
+
 ## Testing
 
 The repo has two test styles:

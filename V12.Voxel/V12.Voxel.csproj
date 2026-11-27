@@ -1,0 +1,19 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+
+    <PackageId>Finite.V12.Voxel</PackageId>
+    <Version>1.0.0</Version>
+    <Authors>Charlie-san; Finite</Authors>
+    <Description>Deformable signed-distance voxel planets for V12: chunked surface-nets meshing, brush edits and per-vertex strata colours</Description>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="$(V12EngineProject)" />
+  </ItemGroup>
+
+</Project>

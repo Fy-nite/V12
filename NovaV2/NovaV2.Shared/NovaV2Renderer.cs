@@ -1347,6 +1347,7 @@ public sealed class NovaV2Renderer : IRenderer, IRendererLifecycle, EngineViewpo
             ? BaseMaterial3D.DepthDrawModeEnum.OpaqueOnly
             : BaseMaterial3D.DepthDrawModeEnum.Disabled;
         material.DisableReceiveShadows = !desc.ReceiveShadows;
+        material.VertexColorUseAsAlbedo = desc.VertexColors;
 
         for (int index = 0; index < parameters.Length; index++)
             ApplyMaterialValueLocked(material, index, parameters[index]);

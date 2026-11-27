@@ -184,6 +184,50 @@ public sealed class GravityMathTests
     }
 
     [Fact]
+    public void GravityField_PatchedConic_UsesOnlyTheLocalFrame()
+    {
+        var field = new GravityField();
+        field.Add(Vector3.Zero, mu: 1000f, surfaceRadius: 10f);
+        field.Add(new Vector3(100f, 0f, 0f), mu: 100f,
+            surfaceRadius: 5f, sphereOfInfluence: 50f);
+
+        // Inside the planet's SOI: the planet pulls, plus the root's tidal
+        // difference. The root's uniform pull cancels the local frame's
+        // acceleration, which is what keeps a ship in a stable local orbit.
+        var inside = field.SampleAcceleration(new Vector3(120f, 0f, 0f));
+        Assert.InRange(inside.X, -0.2195f, -0.2193f);
+
+        // Outside every authored frame: the root owns the point again.
+        var outside = field.SampleAcceleration(new Vector3(200f, 0f, 0f));
+        Assert.InRange(outside.X, -0.0251f, -0.0249f);
+    }
+
+    [Fact]
+    public void GravityField_PatchedConic_PrefersTheSmallestNestedFrame()
+    {
+        var field = new GravityField();
+        field.Add(Vector3.Zero, mu: 1_000_000f, surfaceRadius: 10f);
+        field.Add(new Vector3(1000f, 0f, 0f), mu: 50_000f,
+            surfaceRadius: 5f, sphereOfInfluence: 400f);
+        field.Add(new Vector3(1100f, 0f, 0f), mu: 2_000f,
+            surfaceRadius: 2f, sphereOfInfluence: 50f);
+
+        // Inside Earth and the Moon: the Moon's smaller frame wins, with the
+        // Earth and Sun contributing only their tidal differences.
+        var moon = field.SampleAcceleration(new Vector3(1120f, 0f, 0f));
+        Assert.InRange(moon.X, -3.4431f, -3.4427f);
+
+        // Inside Earth but outside the Moon: Earth owns the point, and the
+        // Sun's tidal term is the small positive remainder at this radius.
+        var earth = field.SampleAcceleration(new Vector3(1350f, 0f, 0f));
+        Assert.InRange(earth.X, 0.0429f, 0.0433f);
+
+        // Outside both: the root owns the point.
+        var root = field.SampleAcceleration(new Vector3(1500f, 0f, 0f));
+        Assert.InRange(root.X, -0.4446f, -0.4442f);
+    }
+
+    [Fact]
     public void GravityFieldSystem_CollectsEnabledSources()
     {
         var root = new GameRoot();

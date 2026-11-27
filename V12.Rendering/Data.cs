@@ -447,7 +447,8 @@ public readonly record struct MaterialDesc(
     bool CastShadows = true,
     bool ReceiveShadows = true,
     ReadOnlyMemory<MaterialValue> Parameters = default,
-    ReadOnlyMemory<MaterialTextureBinding> Textures = default);
+    ReadOnlyMemory<MaterialTextureBinding> Textures = default,
+    bool VertexColors = false);
 
 public readonly record struct DrawOverride(int ParameterIndex, MaterialValue Value);
 

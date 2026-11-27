@@ -25,6 +25,10 @@ public sealed class OrbitPathMesh : ComponentBase, IMeshRenderable
     public float Mu { get; set; }
     public IWorldElement? Ship { get; set; }
     public GravityBodySet? Bodies { get; set; }
+    /// <summary>The scene camera. The live conic is a cinematic aid; in the
+    /// close chase view a world-space tube that hugs the ship is wider than the
+    /// ship itself, so it is hidden there.</summary>
+    public OrbitCameraComponent? Camera { get; set; }
     public int Segments { get; set; } = 2048;
     public float HalfWidth { get; set; } = 1.4f;
     public float RefreshInterval { get; set; } = 0.02f;
@@ -72,6 +76,12 @@ public sealed class OrbitPathMesh : ComponentBase, IMeshRenderable
         if (_timer < RefreshInterval)
             return;
         _timer = 0;
+
+        if (Camera != null && Camera.Mode == CameraViewMode.Follow)
+        {
+            Hide();
+            return;
+        }
 
         var body = Ship?.GetComponent<PhysicsBodyComponent>()?.Body;
         if (body == null)

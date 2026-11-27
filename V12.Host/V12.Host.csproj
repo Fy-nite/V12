@@ -1,0 +1,28 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>library</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+
+    <AssemblyName>V12.Host</AssemblyName>
+    <RootNamespace>V12.Hosting</RootNamespace>
+    <PackageId>Finite.V12.Host</PackageId>
+    <Version>1.0.0</Version>
+    <Authors>Charlie-san; Finite</Authors>
+    <Description>
+      Renderer-agnostic V12 host: resolves and loads a .v12pak, owns the GameRoot
+      lifecycle, and runs headless when no renderer is registered. Shells (Godot,
+      MonoGame, libgodot, console) provide the backend and the frame pump; they do
+      not decide which game runs.
+    </Description>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="$(V12EngineProject)" />
+    <ProjectReference Include="$(V12RenderingProject)" />
+    <ProjectReference Include="$(V12PakProject)" />
+  </ItemGroup>
+
+</Project>

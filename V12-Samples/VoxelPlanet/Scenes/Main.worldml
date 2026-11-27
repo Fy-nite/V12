@@ -1,0 +1,81 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Voxel Planet.
+
+  The planet is a VoxelPlanetComponent on one element. It builds its own chunk
+  elements after the first fixed step, so this file only declares the planet,
+  the lights and the fly camera the tool drives.
+-->
+<World name="VoxelPlanet">
+	<Element name="Sun">
+		<LocalTransform>
+			<Rotation>-50,30,0</Rotation>
+		</LocalTransform>
+		<Component type="GenericLightComponent" ColorR="1" ColorG="0.93" ColorB="0.82" Energy="1.05" Type="Directional" Range="160" ShadowEnabled="True" />
+	</Element>
+
+	<Element name="Fill">
+		<LocalTransform>
+			<Rotation>18,-140,0</Rotation>
+		</LocalTransform>
+		<Component type="GenericLightComponent" ColorR="0.34" ColorG="0.44" ColorB="0.56" Energy="0.38" Type="Directional" Range="160" ShadowEnabled="False" />
+	</Element>
+
+	<Element name="Environment">
+		<Component type="EnvironmentComponent" Mode="SolidColor" SkyR="0.014" SkyG="0.017" SkyB="0.022" AmbientR="0.38" AmbientG="0.42" AmbientB="0.50" AmbientEnergy="0.60" ShadowsEnabled="True" ShadowDistance="120" ShadowBias="2" ShadowNormalBias="1" ShadowOpacity="1" />
+	</Element>
+
+	<Element name="Planet">
+		<Component type="VoxelPlanetComponent" Radius="28" VoxelSize="1" ChunkCells="8" Seed="1207" NoiseAmplitude="2.9" NoiseFrequency="0.075" CrustThickness="4" />
+	</Element>
+
+	<Element name="Player">
+		<Component type="VoxelPlanetFlyTool" CarveStartupCrater="True" />
+
+		<Element name="DesktopCamera">
+			<Component type="CameraComponent" Projection="Perspective" Fov="72" NearClip="0.1" FarClip="600" IsCurrent="True" />
+		</Element>
+	</Element>
+
+	<Element name="Crosshair">
+		<Component type="CanvasComponent" ScreenSpace="true" Overlay="true" AnchorX="0.5" AnchorY="0.5" Priority="20" Interactive="false" />
+		<Element name="CrosshairDot">
+			<Component type="RectComponent" Width="4" Height="4" BackgroundColor="#f2ede2cc" CornerRadius="2" />
+		</Element>
+	</Element>
+
+	<Element name="Hud">
+		<Component type="CanvasComponent" ScreenSpace="true" AnchorX="0" AnchorY="0" Priority="10" />
+		<Element name="HudCard">
+			<Component type="RectComponent" Width="372" Height="176" BackgroundColor="#0b0d10e6" CornerRadius="0" />
+			<Element name="HudLayout">
+				<Component type="VLayoutComponent" Spacing="5" Padding="22" />
+
+				<Element name="HudTitle">
+					<Component type="LabelComponent" Text="VOXEL PLANET" FontSize="18" />
+					<Component type="UIStyleComponent" Flat="true" StyleHint="title" />
+				</Element>
+				<Element name="HudMode">
+					<Component type="LabelComponent" Text="RIGHT CLICK TO CAPTURE" FontSize="15" />
+					<Component type="UIStyleComponent" Flat="true" StyleHint="accent" />
+				</Element>
+				<Element name="HudHint1">
+					<Component type="LabelComponent" Text="Right mouse capture  -  mouse look" />
+					<Component type="UIStyleComponent" Flat="true" StyleHint="muted" />
+				</Element>
+				<Element name="HudHint2">
+					<Component type="LabelComponent" Text="WASD fly  -  Space / Ctrl up / down  -  Shift fast" />
+					<Component type="UIStyleComponent" Flat="true" StyleHint="muted" />
+				</Element>
+				<Element name="HudHint3">
+					<Component type="LabelComponent" Text="Left mouse dig  -  E fill  -  Q smooth  -  wheel radius" />
+					<Component type="UIStyleComponent" Flat="true" StyleHint="muted" />
+				</Element>
+				<Element name="HudStats">
+					<Component type="LabelComponent" Text="chunks 0   voxel edits 0" />
+					<Component type="UIStyleComponent" Flat="true" StyleHint="muted" />
+				</Element>
+			</Element>
+		</Element>
+	</Element>
+</World>

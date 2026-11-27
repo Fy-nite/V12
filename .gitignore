@@ -491,3 +491,7 @@ nul
 
 # NovaV2 gamepak drop folder (written by V12-Samples/SpaceFlight) 
 NovaV2/NovaV2.Host/gamepaks/
+
+# Build/archive artifacts. Sample outputs like SpaceFlight's bin.zip are
+# regenerated, and GitHub rejects any single file over 100 MB.
+*.zip

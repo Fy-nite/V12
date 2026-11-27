@@ -19,6 +19,7 @@ namespace V12.Gravity.Components
     {
         private float _mu = 3.986004418e14f;       // Earth
         private float _surfaceRadius = 6.371e6f;   // Earth mean radius, metres
+        private float _sphereOfInfluence;
         private bool _enabled = true;
 
         public override string Name => "Gravity Source";
@@ -36,6 +37,19 @@ namespace V12.Gravity.Components
         {
             get => _surfaceRadius;
             set => SetSync(ref _surfaceRadius, MathF.Max(0.001f, value));
+        }
+
+        /// <summary>
+        /// Radius of this body's patched-conic frame. Zero means a root source
+        /// (normally the star). Inside the frame only this body's gravity acts,
+        /// so a body on rails is not pulled out of its local orbit by the
+        /// primary's un-cancelled acceleration. Nested frames may overlap; the
+        /// smallest containing one wins.
+        /// </summary>
+        public float SphereOfInfluence
+        {
+            get => _sphereOfInfluence;
+            set => SetSync(ref _sphereOfInfluence, MathF.Max(0f, value));
         }
 
         /// <summary>Surface gravity in m/s^2. Reading derives it from Mu and radius;
@@ -71,10 +85,12 @@ namespace V12.Gravity.Components
             SurfaceRadius = (float)profile.Radius;
         }
 
-        public static GravitySourceComponent FromProfile(PlanetProfile profile)
+        public static GravitySourceComponent FromProfile(
+            PlanetProfile profile, float sphereOfInfluence = 0f)
         {
             var component = new GravitySourceComponent();
             component.Apply(profile);
+            component.SphereOfInfluence = sphereOfInfluence;
             return component;
         }
 
@@ -89,7 +105,8 @@ namespace V12.Gravity.Components
             }
         }
 
-        public GravitySource ToSource() => new(WorldPosition, _mu, _surfaceRadius);
+        public GravitySource ToSource()
+            => new(WorldPosition, _mu, _surfaceRadius, _sphereOfInfluence);
 
         public override void BuildInspector(IInspector inspector)
         {
@@ -97,6 +114,7 @@ namespace V12.Gravity.Components
             inspector.Float("Mu", () => Mu, v => Mu = v);
             inspector.Float("Surface Radius", () => SurfaceRadius, v => SurfaceRadius = v);
             inspector.Float("Surface Gravity", () => SurfaceGravity, v => SurfaceGravity = v);
+            inspector.Float("Sphere of Influence", () => SphereOfInfluence, v => SphereOfInfluence = v);
             inspector.Bool("Enabled", () => Enabled, v => Enabled = v);
         }
 

@@ -9,10 +9,13 @@ V12 is split into a small renderer-agnostic engine, optional extension packages,
 | `V12-Engine` | `V12` / `Finite.V12` | World, ECS, components, rendering contracts, UI contracts, WorldML, physics contracts |
 | `V12.Physics` | `V12.Physics` / `Finite.V12.Physics` | Bepu 2 backend, shape/inertia/impulse extensions, fixed-step physics service |
 | `V12.Gravity` | `V12.Gravity` / `Finite.V12.Gravity` | Point-gravity fields, gravity source components, double-precision orbital mechanics |
+| `V12.Voxel` | `V12.Voxel` / `Finite.V12.Voxel` | Deformable voxel terrain: SDF base, chunked surface-nets meshing, brushes |
 | `V12.Basic` | `V12.Basic` / `Finite.V12.Basic` | Gameplay components, systems, building helpers |
+| `V12.Basic/libs/V12.Bindings` | `V12.Bindings` | Contract script bindings for .NET components and hosts (Roslyn-based) |
 | `V12.Paper` | `V12.Paper` / `Finite.V12.Paper` | Prowl Paper, Origami and Quill UI implementation (optional) |
 | `V12.Editor` | `V12.Editor` / `Finite.V12.Editor` | Editor interaction: viewport service, gizmo, inspector (optional) |
 | `V12.Pak` | `V12.Pak` / `Finite.V12.Pak` | `.v12pak` archive loading and packing |
+| `V12.Host` | `V12.Host` / `Finite.V12.Host` | Pak selection, `GameRoot` lifecycle, renderer-agnostic host |
 | `Nova` | `Nova.Shared` | Godot 4 renderer and frontend |
 | `V12.Monogame` | `V12.Monogame` | MonoGame/Pulsar renderer |
 | `V12Studio` | `Studio.Core`, `Studio.Editor` | Authoring tool and Godot editor host |
@@ -26,13 +29,38 @@ V12 is split into a small renderer-agnostic engine, optional extension packages,
 | `V12-Engine` | `System.*`, `Contract.Runtime`, its own contracts | Godot, MonoGame, Nova, Prowl, V12Studio, BepuPhysics, `V12.Physics`, `V12.Gravity` |
 | `V12.Physics` | `V12-Engine`, BepuPhysics | Godot, MonoGame, Nova, Prowl, V12Studio, `V12.Basic` |
 | `V12.Gravity` | `V12-Engine` | BepuPhysics, `V12.Physics`, Godot, MonoGame, Nova, Prowl, V12Studio, `V12.Basic` |
+| `V12.Voxel` | `V12-Engine` | BepuPhysics, `V12.Physics`, `V12.Gravity`, Godot, MonoGame, Nova, Prowl, V12Studio, `V12.Basic` |
 | `V12.Basic` | `V12-Engine`, `V12.Physics`, `V12.Gravity` | Godot, MonoGame, Nova, V12Studio |
+| `V12.Bindings` | `V12-Engine`, `V12.Basic`, Roslyn | Godot, MonoGame, Nova, Prowl, V12Studio |
 | `V12.Paper` | `V12-Engine`, Prowl | Godot, MonoGame, Nova, V12Studio |
 | `V12.Editor` | `V12-Engine` | Godot, MonoGame, Nova (backend specifics) |
-| `Nova` / `V12.Monogame` | `V12-Engine` packet contracts, backend SDK | Editor internals, `V12.Paper` internals |
+| `V12.Host` | `V12-Engine`, `V12.Rendering`, `V12.Pak` | Godot, MonoGame, Nova, Prowl, backend implementation details |
+| `Nova` / `V12.Monogame` | `V12-Engine` packet contracts, backend SDK | Editor internals, `V12.Paper` internals, pak selection |
 | `V12Studio` | `V12-Engine`, `V12.Basic`, `V12.Paper`, `V12.Editor`| `Nova` , Backend implementation details |
 
 These rules are enforced by `V12.Architecture.Tests` and the project reference graph.
+
+## Host boundary
+
+The host decides what game runs. A renderer backend decides how pixels happen.
+They are separate things even when one executable contains both.
+
+`V12.Host` owns pak selection (`V12PakResolver`), pak loading, gamepak
+initialize/start, world selection and the `GameRoot` lifecycle. A shell owns the
+process, the platform surface and the frame pump, and registers an `IRenderer`
+if it has one. With no renderer registered `GameRoot.Initialize` runs headless,
+so a game can start with no backend at all.
+
+A renderer must not resolve or load paks, read `game.json`, pick a world, or
+assemble gameplay services. If a backend needs to know which game is loaded, the
+wrong layer is doing the work.
+
+```text
+shell (Godot app / MonoGame app / libgodot embedder / console)
+  -> V12.Host   pak, root, services, lifecycle
+     -> IRenderer          frames and GPU resources
+     -> IPresentationHost  surfaces and window events
+```
 
 ## Renderer boundary
 
@@ -110,6 +138,7 @@ The render thread never reads the world tree. Snapshot and packet synthesis is t
 | A new engine component | `V12-Engine/Components`, with `[ComponentEntry]` and `BuildInspector` if it should appear in editors |
 | A physics backend, shape, inertia or body extension | `V12.Physics` |
 | A gravity field, gravity source or orbital mechanic | `V12.Gravity` |
+| A voxel field, terrain brush or chunk mesher | `V12.Voxel` |
 | A new gameplay system | `V12.Basic/Systems` or game code |
 | A new UI widget model | `V12-Engine/Components/UI` plus a `UIFrame` mapping |
 | A new Paper widget | `V12.Paper` |

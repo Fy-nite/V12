@@ -1,4 +1,4 @@
-<Project Sdk="Godot.NET.Sdk/4.7.0">
+<Project Sdk="Godot.NET.Sdk/4.8.0-beta.3">
 
   <PropertyGroup>
     <TargetFramework>net10.0</TargetFramework>
@@ -17,6 +17,7 @@
     <ProjectReference Include="$(V12BindingsProject)" />
     <ProjectReference Include="$(V12PaperProject)" />
     <ProjectReference Include="$(V12PakProject)" />
+    <ProjectReference Include="$(V12VoxelProject)" />
   </ItemGroup>
 
 </Project>

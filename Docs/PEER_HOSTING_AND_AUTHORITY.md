@@ -397,7 +397,7 @@ hostile." It is "clients and hosts may run different code."
 
 | Area | Current state | Required change |
 |---|---|---|
-| Session authority | `WorldAuthority.Local/Hosted/Remote` plus one `DirtyTracker.IsAuthority` bool | Keep the session role; add per-entity authority store and route writes through it. |
+| Session authority | `WorldAuthority.Local/Hosted/Remote` plus one `DirtyTracker.IsAuthority` bool; `EntityAuthorityStore` now records the simulating user per element and the tick path follows it | Route value/component writes through `CanWrite`, not only ticking. |
 | Epoch | `WorldSession.AuthorityEpoch` exists but is not on the wire or enforced | Stamp it on state and control messages; reject stale epochs. |
 | Handoff | `WorldCloseMode.HandoffTo` only invokes a callback | Add a handoff service with snapshot, transfer, lease, and resume. |
 | Region | No region id on sessions | Add `RegionId` to session, descriptors, and wire DTOs. |
@@ -407,8 +407,9 @@ hostile." It is "clients and hosts may run different code."
 | Deltas | `WorldElementUpdate`, `WorldDelta`, component batches | Add authority metadata and reject unowned writers. |
 | Structural changes | Captured as deltas without a durable sequence | Add reliable ordered structural op log with gap detection. |
 | Interest | `NetworkHost` broadcasts to every peer | Add per-peer region/entity subscriptions; keep broadcast for single-region fallback. |
-| SyncValue | Scoped by world, element, component | Add region and epoch scoping. |
+| SyncValue | Scoped by world, element, component; carries a `(clock, writerId)` last-write-wins stamp | Add region and epoch scoping; route writes through `CanWrite`. |
 | Remote writes | `SceneCommandApplier` rejects all writes to `WorldAuthority.Remote` | Allow writes to owned entities; reject everything else. |
+| Client simulation | `EntityAuthorityStore` maps each element to its simulating user; `World.Update` ticks a component only where its element is simulated. Host-side lookup is skipped while nothing is delegated. | Wire `CanWrite` into the value relay; add epoch fencing and the authority snapshot/message. |
 | Scene commands | Host or local only | Validate actor against authority and permissions. |
 | Held objects | `PhysicsBodyComponent.[Remote] Grab/GrabMove/Release` calls | Keep the transport; add an authority grant, epoch, timeout, and host reclaim. |
 | Host abstraction | `NetworkWorldLink` is direct host/client | Add `InProcessHost`, `LocalWorkerHost`, `RemoteRegionHost` behind one interface. |

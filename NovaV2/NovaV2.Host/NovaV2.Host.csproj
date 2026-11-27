@@ -6,11 +6,12 @@
     <Nullable>enable</Nullable>
     <RootNamespace>NovaV2.Host</RootNamespace>
     <AssemblyName>NovaV2.Host</AssemblyName>
-    <EnableDynamicLoading>true</EnableDynamicLoading>
+    <!-- <EnableDynamicLoading>true</EnableDynamicLoading> -->
   </PropertyGroup>
 
   <ItemGroup>
     <ProjectReference Include="..\NovaV2.Shared\NovaV2.Shared.csproj" />
+    <ProjectReference Include="$(V12HostProject)" />
     <ProjectReference Include="$(V12EngineProject)" />
     <ProjectReference Include="$(V12BasicProject)" />
     <ProjectReference Include="$(V12BindingsProject)" />
@@ -19,6 +20,7 @@
          needs to resolve at runtime. -->
     <ProjectReference Include="$(V12PhysicsProject)" />
     <ProjectReference Include="$(V12GravityProject)" />
+    <ProjectReference Include="$(V12VoxelProject)" />
   </ItemGroup>
 
 </Project>

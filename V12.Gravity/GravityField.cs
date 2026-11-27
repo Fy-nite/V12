@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Numerics;
+using System.Runtime.InteropServices;
 using V12.Core.Interfaces.Physics;
 
 namespace V12.Gravity
@@ -21,8 +22,10 @@ namespace V12.Gravity
 
         public void Add(GravitySource source) => _sources.Add(source);
 
-        public void Add(Vector3 position, float mu, float surfaceRadius = 0f)
-            => _sources.Add(new GravitySource(position, mu, surfaceRadius));
+        public void Add(Vector3 position, float mu, float surfaceRadius = 0f,
+            float sphereOfInfluence = 0f)
+            => _sources.Add(new GravitySource(
+                position, mu, surfaceRadius, sphereOfInfluence));
 
         public bool RemoveAt(int index)
         {
@@ -40,11 +43,7 @@ namespace V12.Gravity
         }
 
         public Vector3 SampleAcceleration(Vector3 position)
-        {
-            var acceleration = Vector3.Zero;
-            for (int i = 0; i < _sources.Count; i++)
-                acceleration += _sources[i].AccelerationAt(position);
-            return acceleration;
-        }
+            => GravitySources.SampleAcceleration(
+                CollectionsMarshal.AsSpan(_sources), position);
     }
 }

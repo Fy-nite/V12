@@ -20,6 +20,7 @@ public sealed class BoundaryTests
     private static readonly Assembly Basic = typeof(V12.Basic.BasicRegistry).Assembly;
     private static readonly Assembly Physics = typeof(V12.Physics.PhysicsService).Assembly;
     private static readonly Assembly Gravity = typeof(V12.Gravity.GravityField).Assembly;
+    private static readonly Assembly Voxel = typeof(V12.Voxel.VoxelTerrain).Assembly;
     private static readonly Assembly Pak = typeof(V12.Pak.V12PakLoader).Assembly;
     private static readonly Assembly Editor = typeof(V12.Editor.IViewportInteraction).Assembly;
     private static readonly Assembly Bindings = typeof(V12.Bindings.V12LinkedAssemblies).Assembly;
@@ -50,6 +51,15 @@ public sealed class BoundaryTests
     [Fact]
     public void Gravity_ShouldNotDependOn_RendererOrToolAssemblies()
         => AssertNoDependency(Gravity, RendererAndToolDependencies);
+
+    [Fact]
+    public void Voxel_ShouldNotDependOn_RendererOrToolAssemblies()
+        => AssertNoDependency(Voxel, RendererAndToolDependencies);
+
+    [Fact]
+    public void Voxel_ShouldNotDependOn_PhysicsOrGameplayLayer()
+        => AssertNoDependency(Voxel, "V12.Physics", "V12.Gravity", "V12.Basic",
+            "BepuPhysics", "BepuUtilities");
 
     [Fact]
     public void Physics_ShouldNotDependOn_GameplayLayer()
@@ -112,6 +122,18 @@ public sealed class BoundaryTests
 
         Assert.DoesNotContain("BepuPhysics", csproj, StringComparison.OrdinalIgnoreCase);
         Assert.DoesNotContain("V12.Physics", csproj, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void Voxel_ProjectFile_ShouldReference_EngineOnly()
+    {
+        var csproj = ReadRepoFile("V12.Voxel", "V12.Voxel.csproj");
+
+        Assert.Contains("V12EngineProject", csproj, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("V12.Physics", csproj, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("V12.Gravity", csproj, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("Godot", csproj, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("MonoGame", csproj, StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]

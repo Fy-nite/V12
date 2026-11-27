@@ -1,0 +1,41 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+
+    <!--
+      Dependency-only metapackage. Every ProjectReference below is turned into a
+      package dependency by `dotnet pack`; this project ships no assembly of its
+      own, so referencing Finite.V12.All is the same as referencing every runtime
+      module explicitly.
+    -->
+    <PackageId>Finite.V12.All</PackageId>
+    <Version>1.0.0</Version>
+    <Authors>Charlie-san; Finite</Authors>
+    <Description>Convenience metapackage for V12: references the engine, Basic, Physics, Gravity, Rendering, Audio, Audio.OwnAudio, Paper, Editor, Pak, Skeletal and Voxel modules. Ships no assembly.</Description>
+    <IncludeBuildOutput>false</IncludeBuildOutput>
+    <SuppressDependenciesWhenPacking>false</SuppressDependenciesWhenPacking>
+    <GeneratePackageOnBuild>false</GeneratePackageOnBuild>
+    <IsPackable>true</IsPackable>
+    <!-- A dependency-only package has no lib/ folder by design. -->
+    <NoWarn>$(NoWarn);NU5128</NoWarn>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\V12-Engine\V12.csproj" />
+    <ProjectReference Include="..\V12.Rendering\V12.Rendering.csproj" />
+    <ProjectReference Include="..\V12.Audio\V12.Audio.csproj" />
+    <ProjectReference Include="..\V12.Audio.OwnAudio\V12.Audio.OwnAudio.csproj" />
+    <ProjectReference Include="..\V12.Physics\V12.Physics.csproj" />
+    <ProjectReference Include="..\V12.Gravity\V12.Gravity.csproj" />
+    <ProjectReference Include="..\V12.Basic\V12.Basic.csproj" />
+    <ProjectReference Include="..\V12.Paper\V12.Paper.csproj" />
+    <ProjectReference Include="..\V12.Editor\V12.Editor.csproj" />
+    <ProjectReference Include="..\V12.Pak\V12.Pak.csproj" />
+    <ProjectReference Include="..\V12.Skeletal\V12.Skeletal.csproj" />
+    <ProjectReference Include="..\V12.Voxel\V12.Voxel.csproj" />
+  </ItemGroup>
+
+</Project>

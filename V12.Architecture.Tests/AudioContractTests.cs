@@ -236,6 +236,24 @@ public sealed class AudioContractTests
         engine.Dispose();
     }
 
+    [Theory]
+    [InlineData("Discard all samples (playback) or generate zero samples (capture)", true)]
+    [InlineData("null", true)]
+    [InlineData("NULL", true)]
+    [InlineData("Dummy", true)]
+    [InlineData("Dummy Device", true)]
+    [InlineData("Built-in Audio Analog Stereo", false)]
+    [InlineData("Speakers (Realtek High Definition Audio)", false)]
+    [InlineData("", false)]
+    [InlineData(null, false)]
+    public void SilentDeviceNamesAreRecognised(string? name, bool expected)
+    {
+        Assert.Equal(expected, AudioDeviceInfo.IsSilentDeviceName(name));
+
+        var device = new AudioDeviceInfo(name ?? string.Empty, true, false, 0, 2, 48_000);
+        Assert.Equal(expected, device.IsSilent);
+    }
+
     private sealed class RecordingManagedEffect : IManagedEffect
     {
         private readonly float _gain;

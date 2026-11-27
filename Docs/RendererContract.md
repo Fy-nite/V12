@@ -4,6 +4,7 @@
 > NovaV2 implements it and `vcsdk new renderer` targets it. The packet and
 > snapshot feeds below belong to the legacy
 > `V12.Core.Interfaces.Renderer.IRenderer` still used by MonoGame and Rockstar.
+> `RENDERER_CHECKLIST.md` is the acceptance list for a new backend.
 
 How a renderer backend (MonoGame, Godot/nova, anything else) plugs into V12.
 One rule governs everything: **V12 determines placement; renderers mirror the

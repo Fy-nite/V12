@@ -58,9 +58,9 @@ internal sealed class GravityContext
 
     public Vector3 AccelerationAt(Vector3 position, float gravityScale)
     {
-        var acceleration = UniformGravity;
-        for (int i = 0; i < SourceCount; i++)
-            acceleration += _sources[i].AccelerationAt(position);
+        var acceleration = UniformGravity
+            + GravitySources.SampleAcceleration(
+                _sources.AsSpan(0, SourceCount), position);
         return acceleration * gravityScale;
     }
 }

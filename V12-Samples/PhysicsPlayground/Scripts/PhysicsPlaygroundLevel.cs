@@ -260,7 +260,7 @@ public sealed class PhysicsPlaygroundLevel : ComponentBase
         World world, string name, Vector3 position, Vector3 size, float mass, Vector3 color,
         float metallic, float roughness, bool binTarget, float throwMultiplier = 1f)
     {
-        var element = new Element(name);
+        var element = new Element(name) { Uid = Guid.NewGuid() };
         element.SetTransform(position);
         element.AddCollider(MeshShape.Box, size.X, size.Y, size.Z);
         element.AddPhysics(PhysicsBodyType.Dynamic);
@@ -283,7 +283,7 @@ public sealed class PhysicsPlaygroundLevel : ComponentBase
         World world, string name, Vector3 position, float radius, float mass, Vector3 color,
         float metallic, float roughness, bool binTarget, float throwMultiplier = 1f)
     {
-        var element = new Element(name);
+        var element = new Element(name) { Uid = Guid.NewGuid() };
         element.SetTransform(position);
         element.AddCollider(MeshShape.Sphere, radius * 2f, radius * 2f, radius * 2f);
         element.AddPhysics(PhysicsBodyType.Dynamic);

@@ -15,14 +15,18 @@ and authoring tools.
 | `MCP.md` | V12 MCP: live scene read/write for MCP clients, the loadable probe, tools, security |
 | `INPUT_SYSTEM.md` | Input events, `InputActionMap`, key bindings, and rebinding |
 | `BUILDING_A_RENDERER.md` | Implementing a backend renderer against V12 packets |
+| `RENDERER_CHECKLIST.md` | Acceptance checklist for a custom renderer: requirements, tiers, wiring and tests |
 | `RendererContract.md` | Normative contract between the engine and a renderer |
 | `SHADERS.md` | Custom shaders: the `shader://` asset, Godot's three doors, and the phase plan |
 | `MODEL_LOADING.md` | Static 3D models: `ModelInstance` vs `MeshAsset`, mounts, materials, textures, and import conventions |
 | `FEDERATED_INSTANCES.md` | VNode/V12 split, world regions, host leases and handoff, workers, identity, and optional federation |
 | `PEER_HOSTING_AND_AUTHORITY.md` | Implementation plan for peer-hosted regions, per-entity authority and epochs, gateway-first clients, and freeze/snapshot/resume host handoff |
+| `SIMULATING_USER.md` | Who simulates an element, the welcome/`AssignSimulatingUser` call sequence, physics ownership, and current gaps |
 | `RENDERER_AGNOSTIC_UI.md` | Plan for screen-space and world-space UI as engine-owned meshes, with engine picking and headless simulation |
 | `WORLD_SESSIONS_AND_PERMISSIONS.md` | Multi-world sessions, focus and hidden worlds, per-world connections, fine-grained permissions, temporary worlds and orbs |
 | `BUILDING_GAMES.md` | Gameplay cheatsheet: fixed-step rules, transforms, WorldML, SyncValue, and common recipes |
+| `SCENE_SWITCHING.md` | Loading, focusing, hiding and unloading worlds; button-to-loading-to-game flow, player continuity, desktop/XR behaviour, and known gaps |
+| `VOXEL.md` | Deformable voxel planets: field, brushes, chunk meshing, performance, limits |
 | `CHANGELOG.md` | Engine change history and migration notes |
 
 Other docs remain close to their code:

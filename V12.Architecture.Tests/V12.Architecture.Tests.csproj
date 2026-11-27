@@ -27,7 +27,9 @@
     <ProjectReference Include="$(V12BasicProject)" />
     <ProjectReference Include="$(V12PhysicsProject)" />
     <ProjectReference Include="$(V12GravityProject)" />
+    <ProjectReference Include="$(V12VoxelProject)" />
     <ProjectReference Include="$(V12PakProject)" />
+    <ProjectReference Include="$(V12HostProject)" />
     <ProjectReference Include="$(V12PaperProject)" />
     <ProjectReference Include="$(V12EditorProject)" />
     <ProjectReference Include="$(V12BindingsProject)" />

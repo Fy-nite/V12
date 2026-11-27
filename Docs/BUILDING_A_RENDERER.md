@@ -200,3 +200,7 @@ Treat packets and snapshots as immutable after capture. Do not touch backend obj
 - [ ] `ApplyUI` reconciles by `UINode.Id`.
 - [ ] Editor behavior is not implemented in the renderer.
 - [ ] `dotnet test V12.Architecture.Tests` passes.
+
+For the full acceptance list against the current `V12.Rendering.IRenderer`
+contract, including frame ownership, handles, device epochs and resource
+dependencies, see `RENDERER_CHECKLIST.md`.

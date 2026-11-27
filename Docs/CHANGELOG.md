@@ -7,6 +7,216 @@ All notable engine and tooling changes. The gameplay-facing rules live in
 
 ### Added
 
+- `V12.Host` (`Finite.V12.Host`): a renderer-agnostic host that owns pak
+  selection and the `GameRoot` lifecycle, so renderer backends no longer load
+  games. `V12PakResolver` picks the archive in a fixed order (explicit path, dev
+  inbox, `game.json` descriptor, executable-name compatibility), and `V12Host`
+  loads it, starts its gamepaks, selects a world, and runs headless when no
+  `IRenderer` is registered. `V12GameDescriptor` replaces name-based discovery,
+  so a build is selected by data instead of by what the executable is called.
+  NovaV2's shell now delegates pak resolution to it and keeps only Godot
+  resource-path handling.
+- `vcsdk pack`, `vcsdk build` and `vcsdk serve` write a `game.json` launch
+  descriptor beside each pak (`{ "pak", "world", "engine", "xr" }`). The host
+  reads it, so the executable name is no longer what selects a game, and a
+  shipped build can be renamed freely. NovaV2 reads an embedded `res://game.json`
+  through `FileAccess` before falling back to the archive at the package root.
+- Split paks: `vcsdk pack`, `build` and `serve --split <size>` write
+  `<name>.partNNN.v12pak` parts plus a `game.json` `parts` list.
+  `V12PakPartStream` rolls the parts while packing, `V12PakMultiStream` joins
+  them for the loader (seek included), and pak discovery never mistakes a part
+  for a whole archive. A one-part build is renamed to the plain `.v12pak`, so
+  nothing changes for small games. Each part's `bytes` and `sha256` are recorded
+  in `game.json` (`partInfo`) as the writer streams it; `V12PakParts.Verify` and
+  `V12HostOptions.VerifyParts` use them for integrity and resumable delivery.
+
+- `V12PakLoadResult.Unload()` is the inverse of loading a pak. It closes the
+  pak's world sessions (or detaches the trees when a world was never focused),
+  removes its worlds from `GameRoot.Worlds`, restores the previous
+  `AssetResolver`, stops and removes its gamepaks, drops its compiled component
+  source keys, unloads its collectible `CSharpScriptLoadContext` generations,
+  unlinks its assemblies from `V12LinkedAssemblies`/`CSharpScriptImages`, drops
+  its `bin/` and native probe directories, and forgets the pak in the per-root
+  loaded set. `Dispose()` keeps its documented meaning (release the reader,
+  leave the content alone). A pak that ships `paks/*.dll` still cannot be
+  replaced in-process because those load into the host's non-collectible
+  assembly context; `Unload()` makes the content-only and `CSharpScripts` cases
+  re-loadable and makes teardown testable.
+- `vcsdk serve --reload` pushes each successful build to a connected Android or
+  Quest device and relaunches the app, replacing the manual `adb push` /
+  `am force-stop` / relaunch sequence. Options: `--device <serial>` (defaults to
+  the only connected device), `--package <id>` (defaults to
+  `V12_ANDROID_PACKAGE` or `package/unique_name` in `export_presets.cfg`) and
+  `--inbox <dir>` (defaults to
+  `/storage/emulated/0/Android/data/<pkg>/files/v12inbox`). The pak is written
+  as a fixed `dev.v12pak`, so no cleanup is needed on device. NovaV2 prefers
+  that inbox over the pak in its own package, which means one installed APK and
+  a fresh process per build instead of an in-place pak swap. Reload failures
+  never fail the watch loop.
+
+- `Finite.V12.All`: a dependency-only metapackage covering `Finite.V12`,
+  `.Basic`, `.Physics`, `.Gravity`, `.Rendering`, `.Audio`, `.Audio.OwnAudio`,
+  `.Paper`, `.Editor`, `.Pak`, `.Skeletal` and `.Voxel`. It ships no assembly;
+  its ProjectReferences become package dependencies. `vcsdk sync` and
+  `tools/pack-purr.ps1` publish it, so a project can reference one package
+  instead of listing every module. `V12.Bindings` stays separate (Roslyn) and
+  arrives transitively through `Finite.V12.Pak`.
+- `V12.Bindings` is now published to the Purr feed from its existing home at
+  `V12.Basic/libs/V12.Bindings`. It is a first-class package without moving the
+  project, so `V12.Basic`'s standalone layout and `V12.Bindings.Tests` keep
+  working.
+- `tools/pack-purr.ps1` packs the full module set: Physics, Gravity,
+  `V12.Bindings`, Skeletal and the `Finite.V12.All` metapackage are no longer
+  missing from a pack-purr-only feed.
+
+- Value writes are now authority-gated. `SyncNetworkBridge` resolves the sending
+  peer to its host-assigned player id and `SyncChannel.AcceptIncomingKey` drops a
+  key when that player does not simulate the element; the host relays only the
+  surviving entries. `SyncKey.TryParseElement` maps the scoped key
+  (`world/{w}/element/{uid}/component/{uid}/{field}`) back to an element. This
+  closes the hole where any peer could write any `SyncValue<T>` or `[Sync]` field.
+  `SyncBatchBuilder.BuildBatch` gained an overload that rebuilds a batch from
+  filtered serialized entries.
+- Ownership epochs are enforced and replayed. `EntityAuthorityStore.Apply`
+  rejects a stale or duplicate epoch, release keeps the epoch history instead of
+  deleting the entry, `HasDelegatedEntities` became a counter, and a joining
+  client receives the current assignment map after the snapshot.
+- `SyncValue<T>` has native codecs for `byte[]`, `int[]`, `uint[]`, `float[]` and
+  `double[]` (length + raw values) instead of the JSON fallback, which expanded
+  them roughly tenfold. `MeshComponent`'s buffers are the first beneficiary.
+- `V12-Samples/PhysicsPlayground` has optional multiplayer (`V12_MP_MODE`,
+  default `off`). Host replicates the yard; a grabbed crate is delegated to the
+  grabbing client, which steps it; everyone else follows. The local rig is
+  `NonPersistentComponent` and a client makes it its own simulating user locally
+  so the controller, motor and camera keep ticking on a replica world. Grabbable
+  props got stable `Uid`s (delegation requires one).
+
+- Wire compression. `AncientCompressor` actually compresses now: payloads of
+  `MinBytesToCompress` (512 B) or more go through Brotli (quality 3, window 22)
+  behind a self-describing `V12C` header carrying the codec and the original
+  length. Small payloads, incompressible payloads and already-compressed payloads
+  are returned as raw BSON, so a 60 Hz value batch pays no header and a second
+  compression pass adds nothing. Raw BSON still decodes, so the reader is
+  backward compatible with uncompressed payloads from the same build.
+  The delivery decision uses the serialized size, so a large element update that
+  compresses under the MTU now stays on the unreliable channel instead of
+  escalating to reliable. Documented under "Compression and delivery" in
+  `V12-Engine/Docs/NETWORKING_GUIDE.md`. Tuning:
+  `AncientCompressor.MinBytesToCompress`, `BrotliQuality`, `BrotliWindow`, plus a
+  512 MB decompression cap.
+  Tests: `V12.Architecture.Tests/WireCompressionTests` covers the shrink+round
+  trip, the no-header small path and the incompressible path.
+
+- `[Sync]` field binding (`SyncFieldBinder`, `ISyncValueProvider`). Marking a
+  field or property on a component now replicates it without any per-component
+  plumbing: a cached per-type schema creates one `SyncValue<T>` per member
+  (key = member name, or `[Sync("key")]`), polls it once per fixed tick on the
+  peer that simulates the element, and writes remote updates back into the
+  member. A property setter that calls `MarkDirty` no longer echoes the update
+  onto the wire (`ComponentBase.IsApplyingRemote`); the render refresh still
+  runs. Accessors are compiled once per member.
+  Explicit `SyncValue<T>` members keep working unchanged and are discovered
+  alongside the bound fields — `[Sync]` for ordinary user-facing values,
+  `SyncValue<T>` when you want to control when a large value is sent.
+  `SyncValue<T>` gained an opt-out from the process-wide registry so bound fields
+  do not pollute it, `ISyncValue.MarkDirty` lets a session re-send everything,
+  and `NetworkWorldLink` sends that full keyframe when a client joins so values
+  excluded from the component snapshot (`[Sync][BsonIgnore]`, explicit values)
+  still arrive.
+  Tests: `V12.Architecture.Tests/SyncFieldBinderTests` covers schema discovery,
+  change-only publishing, the fixed-tick hook, remote write-back with no echo
+  through a property setter, and explicit values binding alongside fields.
+
+- `tools/sync-v12.ps1`: one command that runs `vcsdk sync --dev` (which already
+  auto-discovers every root-level `Finite.V12.*` module, so a new package needs
+  no SDK edit) and then installs any assembly a renderer slot is missing into
+  every installed renderer. Supports `-DryRun`, `-Force`, `-Renderer` and
+  `-SkipSync`. The matching `tools/install-v12-packages.ps1` extracts the
+  runtime `Finite.V12.*` packages from the Purr feed and fills gaps only, so a
+  fresh renderer export is never downgraded. Authoring-only packages
+  (`Finite.V12.Editor`, `Finite.V12.Sdk`, `V12.MCP.*`) are excluded.
+- This closes the failure mode where `vcsdk build -r novav2` copied a renderer
+  that was missing `V12.Voxel.dll`; the gamepak resolved but its planet
+  component did not, producing the "No VoxelPlanetComponent in the scene"
+  error. `tools/install-novav2-renderer.ps1` now also installs missing packages
+  and runs the dependency audit with `-IncludePackages`.
+
+- `tools/check-v12-deps.ps1`: audits an installed renderer or exported game
+  folder against the real `V12.*.dll` set from a build output. It reports
+  missing, stale and extra assemblies, optionally lists the newest
+  `Finite.V12.*` packages, and is the generic replacement for hardcoded
+  Gravity/Physics checks. `tools/install-novav2-renderer.ps1` now runs this
+  audit after export, so a new engine module (first case: `V12.Voxel`) cannot
+  be silently absent from `~/.purr/renderers/<id>/<rid>`.
+- Documented the renderer-slot workflow in `Docs/VOXEL.md`,
+  `Docs/WORKING_ON_V12.md` and the Voxel Planet sample: `vcsdk sync --dev`
+  updates the NuGet feed, `vcsdk build -r <id>` copies the installed renderer,
+  and only `tools/install-novav2-renderer.ps1` refreshes the slot. A missing
+  `V12.Voxel.dll` there is the "No VoxelPlanetComponent in the scene" failure.
+
+- Render interpolation for high-refresh displays. `GameRoot.RenderInterpolation`
+  (off by default, on in NovaV2) makes capture read
+  `Element.RenderWorldTransform`, which slerps position/rotation/scale between
+  the last two fixed-step poses using the clock's `InterpolationAlpha`. The
+  world snapshots every element at the start and end of a fixed step
+  (`World.BeginRenderPoseSnapshot` / `EndRenderPoseSnapshot`) after physics and
+  gameplay services have written their transforms. Gameplay, physics and
+  `SceneQuery` keep the exact simulated `WorldTransform`. This removes 60 Hz
+  motion judder on a 144/240 Hz display for ~0.05 ms of CPU; the cost is up to
+  one fixed step of visual latency. `ElementPlacement.RenderLocalMatrix` and
+  `RenderWorldMatrix` are the capture-only helpers.
+- `V12_FPS_LOG=1` in the NovaV2 host: opt-in per-frame telemetry with average
+  and max CPU/wall time plus managed allocation per frame, printed every 120
+  frames. Off by default.
+- `V12-Samples/VoxelPlanet`: the terrain tool now applies once per fixed tick
+  (60 Hz) with a lower per-tick strength, so digging follows the mouse instead
+  of stepping at 18 Hz. The aiming ray uses the presented camera pose.
+
+- `V12.Voxel` (`Finite.V12.Voxel`): a renderer-agnostic deformable terrain
+  package. A planet is a signed-distance sphere pushed around by seeded value
+  noise; brushes (`Dig`, `Fill`, `Smooth`) write sparse voxel overrides, and
+  `VoxelSurfaceNets` meshes only the changed chunks into ordinary
+  `IMeshRenderable` geometry. Chunk grids are cached and updated in place, so a
+  brush pass costs 8 chunks in ~0.6-0.9 ms, and `VoxelPlanetComponent` rebuilds
+  dirty chunks nearest-first under a 4 ms per-tick budget while keeping the
+  previous mesh visible. Includes `TryRaycast`, `TryUseTool`,
+  `ApplyWorldBrush`, depth-based vertex-colour strata, deterministic
+  cross-chunk seams, and `Docs/VOXEL.md`.
+- `V12.Voxel.Tests`: headless geometry invariants for the mesher - outward
+  winding, no open edges or duplicated seam triangles across chunks, brush
+  carving, and deterministic re-meshing.
+- `V12-Samples/VoxelPlanet`: a fly-camera voxel planet you can dig, fill and
+  smooth, with a pre-carved crater, a Paper HUD and a live remesh-time readout.
+- `IMeshRenderable.MeshColors` plus `RenderableSnapshot.MeshColors`: an optional
+  per-vertex RGBA stream for procedural and baked geometry (terrain strata, baked
+  AO). `MaterialDesc.VertexColors` carries the intent to the backend; NovaV2
+  maps it to `VertexColorUseAsAlbedo`. Meshes that publish no colours keep the
+  existing opaque-white stream, so nothing renders differently.
+- NovaV2 host: references `V12.Voxel` alongside `V12.Physics`/`V12.Gravity` so a
+  gamepak's optional package resolves from the host load context.
+
+- `V12.Gravity` patched-conic frames: `GravitySourceComponent.SphereOfInfluence`
+  and `GravitySource.SphereOfInfluence` let a gravity field pick the smallest
+  containing frame instead of summing every point mass. Inside that frame only
+  the local body acts; outside every frame only roots (`SOI == 0`) act.
+  `GravitySources.SampleAcceleration` is shared by `GravityField` and the Bepu
+  integrator, so telemetry, cameras and physics choose the same body. Fields
+  that author no SOIs keep the old all-source sum.
+- `V12-Samples/SpaceFlight`: rescaled the system to a big-world layout (Earth
+  420,000 units, Moon 115,000, Jupiter 1,800,000) with surface gravity from the
+  real planets, authored spheres of influence that nest Moon inside Earth, and
+  patched-conic gravity so a kinematic primary's un-cancelled pull cannot drag
+  the ship out of its local orbit. Orbit rings and the live conic tube now scale
+  with the scene instead of using the old 10,000-unit constants.
+
+- `Docs/RENDERER_CHECKLIST.md`: acceptance checklist for a custom renderer. It
+  splits the requirements into the mandatory `V12.Rendering.IRenderer` contract
+  (frame leases, validated handles, device epochs, resource dependencies, views,
+  draw items, threading, failure policy), normal scene parity, and optional
+  capability-gated features. It also covers host wiring with
+  `RenderFrameProducer`, the acceptance tests to run, and the common reasons a
+  backend is rejected. The checklist is linked from `Docs/README.md`,
+  `RendererContract.md` and `BUILDING_A_RENDERER.md`.
 - Android/mobile pak loading from the app package. `V12PakReader`,
   `V12PakLoader` (`LoadFromStream`) and `GameRoot.LoadPak` accept a stream-backed
   pak, keyed in the extraction cache by a sampled length/head/tail hash, so an
@@ -389,7 +599,77 @@ All notable engine and tooling changes. The gameplay-facing rules live in
   original GLB into `Assets/`, with the model kept in `SourceAssets/` outside
   the pak.
 
+- Per-element simulating user (`EntityAuthorityStore`, `WorldSession.Authorities`).
+  Every element has exactly one peer simulating it: the host by default, or the
+  player it is delegated to. `NetworkWorldLink.AssignSimulatingUser(element,
+  playerId)` applies the assignment and broadcasts `MessageType.EntityAuthority`;
+  the new owner starts simulating and every other peer stops. `World.Update` now
+  takes the session's ownership map and ticks a component only where its element
+  is simulated, so `ScriptComponent`, `ContractComponent` and any ordinary
+  component run on the peer that owns the object — the "simulating user" model,
+  not a client-side copy of host simulation. A remote world still stays out of
+  `ActiveWorlds`, so host physics, audio and capture do not start on a client.
+  `ComponentSimulationScope` gained `Simulator` (default, tick wherever the
+  element is simulated), `Replica` (tick only where the element is a replica),
+  and `Everywhere` (validation/compute: tick even when this peer does not
+  simulate the element). `WorldSession.LocalPlayerId` tells a client which
+  player it is; a game sets it from its welcome message.
+  `ScriptSystem` now also collects scripts from replica sessions, so hot reload
+  and `on_action` reach a client-side script.
+  Still missing, deliberately: value writes are not gated by
+  `EntityAuthorityStore.CanWrite` (poses are), there is no epoch fencing or
+  authority snapshot yet, and a hung-but-connected owner keeps its elements. See
+  `Docs/SIMULATING_USER.md`.
+- Clients can claim an element instead of waiting for the host to notice a grab.
+  `NetworkWorldLink.RequestSimulatingUser` / `ReleaseSimulatingUser` send
+  `MessageType.EntityAuthorityRequest`; the host grants a claim when the element
+  is unowned or already the requester's (first claim wins), and ignores the rest.
+- Disconnects reclaim ownership. `NetworkClient.Disconnect` sends a disconnect
+  instead of closing silently, so the host no longer waits out its 15 s timeout.
+  `NetworkWorldLink` then calls `EntityAuthorityStore.ReleaseAllFor(playerId)`,
+  broadcasts an `EntityAuthority` per released element before raising
+  `ClientLeft`, and the host resumes simulating them on the next tick.
+  `PickupSystem` and `GrabberComponent` now claim on grab, re-resolve their
+  physics body after the grant rebuilds it, and release on drop, replacing the
+  old `ClientHeld` + `[Remote] Grab/GrabMove/Release` path (still present in
+  `PhysicsBodyComponent` for compatibility, no longer used).
+- Simulating-user physics. `PhysicsLocomotionSystem` now walks world sessions
+  instead of `ActiveWorlds`, so a client builds bodies for a replicated world: a
+  dynamic body for the elements it simulates and a kinematic follower driven by
+  the element pose for everything else. It destroys and recreates the body when
+  the role flips (grab/release), so a follower never keeps the dynamic body's
+  inertia. A client's pose for an element it simulates now reaches the host and
+  the other peers: `DirtyTracker.CanSendElement` (set from
+  `WorldSession.IsSimulatedLocally`) sends only owned elements on a client, and
+  the host filters `WorldElementUpdate` with `EntityAuthorityStore.CanWrite`,
+  applies it, and relays it with the origin preserved so the sender is not
+  echoed. Only pose fields are trusted from a client; name, description, parent
+  and uid stay host-authoritative. Tests: client-owned pose reaches the host and
+  a second client; an unauthorised client pose never reaches the host.
+
 ### Changed
+
+- `WorldSession.SimulateReplicaComponents` is now `SimulateRemoteWorld`, because
+  it gates the whole client-side tick pass for a remote world (owned elements and
+  replica-only components), not just components.
+
+- `SyncValue<T>` versions are a last-write-wins stamp instead of a bare counter:
+  `(hybridClock << 16) | writerId`. The wire size is unchanged (one `uint64`),
+  but comparison now orders by `(clock, writer)` where the clock is UTC
+  milliseconds bumped to stay monotonic per value. This is what lets two peers
+  write the same value and still converge; the old scheme made any two active
+  writers reject each other forever. `SyncChannel.WriterId` supplies the 16-bit
+  identity, the host uses its server-assigned player id, and `TryApplyRemote`
+  remembers the exact accepted stamp so a duplicate cannot re-apply.
+  `SyncValue<T>.PackVersion` / `ClockOf` / `WriterOf` expose the layout.
+- `NetworkWorldLink` forwards a client's `SyncBatch` to every other peer by
+  default (new `RelayRemoteValueWrites`, default `true`). A client write now
+  reaches the host and the rest of the session without a round trip; conflicts
+  resolve on the version stamp. The host still applies the batch through
+  `SyncNetworkBridge` and `NetworkHost.BroadcastMessage` still skips the origin.
+  This is the transport half of `docs/PEER_HOSTING_AND_AUTHORITY.md` §5: it does
+  not yet ask whether the sender may write that value, so treat it as
+  trusted-session behaviour until the `CanWrite` gate lands.
 
 - NovaV2 XR now publishes `xr_<side>_trigger` and `xr_<side>_grip` every frame,
   not only when the analog value changes. `InputActionMap` clears host-frame name
@@ -634,6 +914,11 @@ All notable engine and tooling changes. The gameplay-facing rules live in
 
 ### Removed
 
+- The dead client-grab path: `PhysicsBodyComponent.ClientHeld`, `HeldPosition`,
+  `HeldRotation`, `LastGrabMoveMs`, its `[Remote] Grab/GrabMove/Release` methods,
+  and the `ClientHeld` branches in `PhysicsLocomotionSystem`. Session links never
+  dispatched those RPCs, and grabbing now goes through `RequestSimulatingUser`.
+
 - `TransformComponent` from the engine and V12.Basic. Elements own their pose
   through `IWorldElement.LocalTransform`.
 - TransformComponent mirroring from `Element.LocalTransform`, renderer
@@ -644,6 +929,80 @@ All notable engine and tooling changes. The gameplay-facing rules live in
 
 ### Fixed
 
+- Screen-space canvas input no longer leaks to whole-viewport overlays.
+  `CanvasComponent.Interactive` is captured on `UINode`, and Paper marks a
+  non-interactive canvas box `IsNotInteractable`, so a decorative crosshair or
+  HUD overlay does not report `WantsCapturePointer` and swallow gameplay
+  clicks. The VoxelPlanet crosshair opts out with `Interactive="false"`.
+- `V12-Samples/VoxelPlanet` now pins `V12.Voxel` in a static constructor.
+  A pak loader parses its worlds before `IV12Gamepack.Initialize` runs, so the
+  previous load in `Initialize` was one step too late: `WorldMLParser` reported
+  `Unknown component type 'VoxelPlanetComponent'` and skipped the planet even
+  though `V12.Voxel.dll` was present and loaded moments later.
+- `NovaV2.Shared` still requested `Godot.NET.Sdk/4.7.0` while the host and
+  `project.godot` target 4.8. MSBuild ignored the older SDK (`MSB4240`) and
+  resolved the shared project against the host's SDK; it now declares
+  `4.8.0-beta.3` directly, so a standalone build of the shared project matches
+  the host instead of silently targeting 4.7.
+- Restoring `Finite.V12.Pak` failed with `NU1101: Unable to find package
+  V12.Bindings`. The Pak nuspec declares `V12.Bindings` (it uses the bindings
+  runtime to load Contract component assemblies), but `vcsdk sync` never packed
+  it because it lives below the root-level discovery scan. Both pack paths now
+  include it, and the package resolves from the same feed version as the rest of
+  the engine.
+- `tools/check-v12-deps.ps1 -IncludePackages` required a `V12.All.dll` that does
+  not exist. Dependency-only metapackages (no `lib/` assembly) are now skipped
+  when building the required-assembly set.
+- `tools/pack-purr.ps1` omitted Physics, Gravity and Skeletal even though
+  `Finite.V12.Basic` and the Voxel/Skeletal modules depend on them, so a feed
+  produced by that script alone could not restore those packages. The list now
+  matches the modules `vcsdk sync` packs.
+
+- World teardown leaked components. `WorldManager.Close` (and the direct
+  `GameRoot.Worlds` removal path) dropped the world tree without calling
+  `OnDetach`/`OnDestroy`, so event subscriptions, script runtimes and backend
+  resources outlived the world. There is now one teardown,
+  `World.DetachAll()`, which walks the tree and detaches + destroys every
+  component; `WorldManager` calls it on close and on direct removal, and
+  `WorldContentSwap` (hot reload) reuses it instead of its own copy.
+  `Element.RemoveComponent` now also calls `OnDestroy` after `OnDetach`.
+  `PhysicsBodyComponent.OnDetach` destroys its backend body, which is the
+  reported symptom: a closed world used to leave Bepu bodies alive in
+  `PhysicsService` and still colliding. `PhysicsService.BodyCount` /
+  `StaticBodyCount` expose the maps for diagnostics.
+  `World.RemoveElement` deliberately still does not detach: removing an element
+  is also how a reparent works, so detaching there would break moving a live
+  subtree between worlds.
+  Teardown also releases the component's process-wide `SyncValue` registry
+  entries. `SyncRegistry.Unregister(ISyncValue)` removes by instance and refuses
+  to delete a replacement that took the same key; `SyncValueScanner` is the one
+  enumeration used by both the session channel and teardown, so registration and
+  cleanup cannot drift apart.
+  Tests: `V12.Architecture.Tests/WorldTeardownTests` checks recursive detach,
+  close, direct removal, the physics body count, contract pinning, and that detach
+  and `RemoveComponent` unregister values.
+
+- Contract components now release their VM object. `ContractComponentRegistry`
+  pins the handle (`ContractRuntime.PinHandle`) before the constructor runs and
+  `ContractComponent.OnDetach` unpins it, so a closed world's script instances
+  become collectable instead of staying rooted for the life of the session. This
+  needed a VM change: the ObjektRT collector only rooted statics and interpreter
+  stacks, so a handle held by CLR host code had no root at all and could be swept
+  while the component was still calling into it. `Runtime.PinObject` /
+  `UnpinObject` / `PinnedObjectCount` / `IsObjectAlive` are the host root API.
+  Tests: the ObjektRT runtime suite pins/collects/unpins/collects, and
+  `WorldTeardownTests.ContractComponent_DetachReleasesTheVmHandle` compiles a
+  `.ct` component, checks it is pinned after allocation, and checks the pin is
+  gone after `RemoveComponent`.
+
+- `SyncValue<T>` no-write-wins: two peers writing the same value both advanced to
+  the same counter, so `TryApplyRemote` rejected `version <= local` on both sides
+  and every remote update was dropped for as long as both kept writing. The
+  packed `(clock, writer)` stamp makes the winner total and deterministic, and
+  `TryApplyRemote` now compares against the last accepted stamp rather than a
+  recomputed one (which let a duplicate from a higher writer id re-apply).
+  `V12.Architecture.Tests/ValueSyncMultiWriterTests` covers tie-break, stale
+  rejection, clock adoption, and a real three-root loopback relay.
 - Element tree consistency. `World.AddElement`/`RemoveElement` and
   `Element.AddChild`/`RemoveChild` now index and unindex whole subtrees, so
   `FindElementById` no longer misses live descendants or returns detached ones.
@@ -826,6 +1185,15 @@ All notable engine and tooling changes. The gameplay-facing rules live in
   without drifting.
 - WorldML serializer no longer synthesizes TransformComponent.
 - Pak template tests now search recursively for expanded template children.
+- Linux audio silence. OwnAudioSharp's ALSA enumeration includes the `null` PCM
+  ("Discard all samples (playback) or generate zero samples (capture)"), and the
+  own-audio backend took the first device when ALSA had no default, so a machine
+  whose real sink could not open ran with a fully initialised, completely silent
+  engine. Device selection now skips null/dummy devices while real hardware is
+  available, tries every remaining device before failing startup, and reports the
+  enumerated list when none opens. `AudioDeviceInfo.IsSilent` exposes the check,
+  `AudioSystem` logs a warning when only a silent sink exists, and NovaV2 accepts
+  `--audio-device <name>` to choose the output device explicitly.
 
 ## Migration notes
 
@@ -870,6 +1238,24 @@ as components.
 
 Remove `[BsonIgnore]` from `SyncValue<T>` properties. The BSON convention and
 WorldML serializer skip them by type.
+
+### Wire compression
+
+Payloads of 512 B or more are Brotli-compressed behind a `V12C` header. A build
+from before this change cannot read them: update both peers together. Small
+payloads (including normal value batches) are unchanged and still raw BSON.
+Tune with `AncientCompressor.MinBytesToCompress` / `BrotliQuality` /
+`BrotliWindow` if the fixed step shows compression cost.
+
+Version stamps are now `(clock << 16) | writerId` rather than a bare counter. The
+payload is still one `uint64`, so nothing changes on disk, but a build from
+before this change and one after it must not be mixed in one session: each side
+would read the other's stamps as a different ordering. Update both peers.
+
+Code that treated `SyncValue<T>.Version` as "number of writes" should use
+`SyncValue<T>.ClockOf` / `WriterOf`, or keep its own counter. Do not assume
+`Version` starts at 1 or increments by exactly one: the clock is UTC
+milliseconds.
 
 ### Fixed step
 

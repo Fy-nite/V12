@@ -10,17 +10,84 @@ This is the reference for `vcsdk new net`, `vcsdk pack`, and hand-written
 
 ## 1. What a game pak is
 
-A game pak is a class library packaged as a `.v12pak` archive. The generic
-renderer (for example `Pulsar.GL`) looks for `<executable name>.v12pak` next to
-its own executable, loads it, and runs it as content plus gameplay code. You do
-not write a `Main`, and you do not need an `IV12Gamepack` entry point.
+A game pak is a class library packaged as a `.v12pak` archive. The engine-side
+host (`V12.Host`) decides which pak runs and loads it as content plus gameplay
+code; a renderer backend only draws frames. You do not write a `Main`, and you
+do not need an `IV12Gamepack` entry point.
 
 `vcsdk pack` stages the published assembly and packs the archive. `vcsdk build`
 on a directory containing a `.csproj` delegates to `pack`.
 
 ---
 
-## 2. Discovery and load order
+## 2. Which pak runs
+
+`V12PakResolver.Resolve` (in `V12.Host`) picks the archive, in this order:
+
+| Step | Source | Notes |
+|---|---|---|
+| 1 | Explicit path (`--pak`, `V12HostOptions.PakPath`) | Always wins; a missing file is an error |
+| 2 | Dev inbox (`v12inbox/dev.v12pak`) | Written by `vcsdk serve --reload`; outranks the shipped build |
+| 3 | Descriptor (`game.json` next to the host) | `{ "pak": "MyGame.v12pak", "world": "...", "xr": true }` |
+| 4 | `<process name>.v12pak` | Compatibility only; new builds ship a descriptor |
+
+The descriptor replaces name-based discovery. Nothing infers the game from what
+the executable is called, so a host can be renamed freely and one installed
+player can run any pak.
+
+`vcsdk pack` and `vcsdk build` write it beside the pak. A multi-RID build writes
+`<pak stem>.game.json` per pak, because several paks in one folder cannot all be
+"the" game; a single pak gets plain `game.json`.
+
+### Split paks
+
+`--split <size>` writes numbered parts instead of one archive:
+
+```
+bin/MyGame.part001.v12pak
+bin/MyGame.part002.v12pak
+bin/game.json
+```
+
+The parts are a byte-level split of one archive, not separate archives. The
+reader joins them into a single stream, so the cache key, extraction and manifest
+handling are unchanged. When the whole archive fits in one part it is renamed to
+`MyGame.v12pak`, so a small build looks normal.
+
+`game.json` lists the parts:
+
+```json
+{
+  "pak": "MyGame.v12pak",
+  "parts": ["MyGame.part001.v12pak", "MyGame.part002.v12pak"]
+}
+```
+
+`parts` is optional: a descriptor whose `pak` names a logical archive also picks
+up adjacent parts. Discovery never treats a part file as a standalone pak.
+
+Each part's size and SHA-256 are recorded as it is written:
+
+```json
+"partInfo": {
+  "MyGame.part001.v12pak": { "bytes": 3145728, "sha256": "18302a98..." }
+}
+```
+
+A delivery layer can use that to resume (skip a part it already has) and re-fetch
+only the part that failed. The loader verifies only when asked, through
+`V12HostOptions.VerifyParts`, because a local build is not a download.
+
+`--split` implies `--no-renderer`, because the output is a set of files rather
+than one shippable pair. Copy the parts and the descriptor yourself, or use
+`--copy-target`. `serve --reload` does not support split builds: the dev inbox
+pushes a single pak.
+
+This is for distribution limits (FAT32's 4 GiB file cap, per-file transport
+limits, resumable downloads), not for hot swapping. The reader still extracts the
+whole archive, and a device still needs every part present.
+
+Once a pak is chosen, its own manifest decides what is loaded:
 
 `V12PakLoader.Load` runs in this order:
 
@@ -151,11 +218,25 @@ A content pak:
 <PackageReference Include="Finite.V12.Basic" Version="$(V12Version)" />
 ```
 
-`Finite.V12.Basic` depends on `Finite.V12`, which brings `Finite.V12.Audio` and
-`Finite.V12.Rendering`. `Finite.V12` depends on `Contract.Runtime`, so
-`vcsdk sync` also packs the Contract runtime chain (`Contract.Runtime`,
-`Contract.Compiler`, `ObjectRT.*`, `ObjektRT.*`). Add `Finite.V12.Paper`,
-`.Editor`, `.Pak` or `.Rendering` only when the code uses them.
+`Finite.V12.Basic` depends on `Finite.V12`, Physics and Gravity, so a normal
+gamepak pulls `Finite.V12`, `Finite.V12.Physics`, `Finite.V12.Gravity`,
+`Finite.V12.Audio` and `Finite.V12.Rendering` transitively. `Finite.V12`
+depends on `Contract.Runtime`, so `vcsdk sync` also packs the Contract runtime
+chain (`Contract.Runtime`, `Contract.Compiler`, `ObjectRT.*`, `ObjektRT.*`).
+Add `Finite.V12.Paper`, `.Editor`, `.Pak`, `.Skeletal` or `.Voxel` only when
+the code uses them.
+
+A metapackage is available when the project wants everything:
+
+```xml
+<PackageReference Include="Finite.V12.All" Version="$(V12Version)" />
+```
+
+`Finite.V12.All` is dependency-only (no assembly) and covers `Finite.V12`,
+`.Basic`, `.Physics`, `.Gravity`, `.Rendering`, `.Audio`, `.Audio.OwnAudio`,
+`.Paper`, `.Editor`, `.Pak`, `.Skeletal` and `.Voxel`. `V12.Bindings` stays
+separate because it brings Roslyn; `Finite.V12.Pak` depends on it, so hosts
+that load Contract component assemblies get it transitively.
 
 A renderer library:
 
@@ -299,6 +380,9 @@ vcsdk build D:\git\MyGame
 # watch .cs/.csproj/content and repack on change
 vcsdk serve D:\git\MyGame
 
+# watch, then push each build to a connected headset and relaunch it
+vcsdk serve D:\git\MyGame --reload --package com.finite.mygame
+
 # fail when the pak's engine version differs from the renderer's
 vcsdk pack D:\git\MyGame --strict
 
@@ -307,6 +391,9 @@ vcsdk pack D:\git\MyGame --runtime win-x64,linux-x64,osx-arm64 -o dist
 
 # one pak that runs everywhere (all platforms' natives inside it)
 vcsdk pack D:\git\MyGame --runtime any
+
+# split into parts of at most 2 GiB (writes game.json listing them)
+vcsdk pack D:\git\MyGame --split 2g
 ```
 
 The default target RID is the host RID, and the matching renderer build is

@@ -54,6 +54,12 @@ public sealed class PhysicsService : IGameService, IPhysicsBackend, IGravityFiel
     /// <summary>High priority so this backend wins over host fallbacks.</summary>
     public int Priority => 100;
 
+    /// <summary>Live dynamic/kinematic body count. Diagnostics and leak tests.</summary>
+    public int BodyCount => _bodyMap.Count;
+
+    /// <summary>Live static body count. Diagnostics and leak tests.</summary>
+    public int StaticBodyCount => _staticMap.Count;
+
     /// <summary>Uniform gravity applied to dynamic bodies in addition to any gravity field.</summary>
     public Vector3 Gravity
     {

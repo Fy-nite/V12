@@ -13,7 +13,8 @@ Commands are PowerShell; the flags are the same on macOS and Linux.
 
 1. Point Godot at the Android SDK/JDK and install the Android build template.
 2. Build the pak: `vcsdk pack <game> --no-renderer -o <game>\build\MyGame.v12pak`.
-3. Copy it to `NovaV2/NovaV2.Host/MyGame.v12pak`.
+3. Copy `MyGame.v12pak` and the `game.json` written beside it to
+   `NovaV2/NovaV2.Host/`.
 4. Set the Android preset's package id and (for release) keystore.
 5. Export: `godot --headless --path NovaV2/NovaV2.Host --export-release "Android" build\MyGame.apk`.
 6. Install: `adb install -r build\MyGame.apk`, then `adb logcat -s godot:V`.
@@ -66,6 +67,11 @@ vcsdk pack D:\git\MyGame --no-renderer -o D:\git\MyGame\build\MyGame.v12pak
   native libraries are ignored on device (section 8).
 - The pak's manifest decides XR: `"Xr": true` starts XR at launch, otherwise the
   game starts flat and can call `NovaV2Runtime.EnableXR()` later.
+- `--split 2g` works the same way: copy every `MyGame.partNNN.v12pak` and the
+  `game.json` that lists them. The preset's `*.v12pak` filter ships the parts.
+  Splitting does not get around Play's base-module size limit; that needs Play
+  Asset Delivery. `game.json` records each part's size and SHA-256, so a custom
+  updater can resume or re-fetch a single part.
 
 ## 3. Put the pak in `res://`
 
@@ -75,15 +81,25 @@ Copy the pak into the Godot project root:
 NovaV2/NovaV2.Host/MyGame.v12pak
 ```
 
-The Android preset already has `include_filter="*.v12pak"`, which packs raw
-`.v12pak` files. Keep it at the project root; folders whose name starts with `_`
-are excluded by Godot's Gradle export.
+The Android preset already has `include_filter="*.v12pak,*.json"`, which packs
+raw `.v12pak` files and the launch descriptor. Keep them at the project root;
+folders whose name starts with `_` are excluded by Godot's Gradle export.
 
-NovaV2 discovers a pak in this order:
+Pak selection belongs to `V12.Host`, not the renderer. NovaV2 asks
+`V12PakResolver` first, which checks:
 
-1. `--pak res://MyGame.v12pak` (or a bare `--pak MyGame.v12pak`).
-2. `res://<executable-name>.v12pak`.
-3. The first `*.v12pak` at the package root, alphabetically.
+1. An explicit `--pak` that is a real file path.
+2. The dev inbox (`<user>/v12inbox/dev.v12pak`, and the app's external
+   `Android/data/<package>/files/v12inbox` on device).
+3. `game.json` next to the host, when it is a real file.
+4. `<executable-name>.v12pak`, for compatibility with older builds.
+
+Inside an APK `System.IO` cannot see content, so the shell then falls back to the
+Godot resources:
+
+5. `--pak res://MyGame.v12pak` (or a bare `--pak MyGame.v12pak`).
+6. `res://<executable-name>.v12pak`.
+7. The first `*.v12pak` at the package root, alphabetically.
 
 So a single pak at the root needs no command line.
 
@@ -273,7 +289,44 @@ You should see `Using embedded pak: res://MyGame.v12pak` and the extraction
 lines. Delete the pak from the project root afterwards so it is not committed or
 packed by accident.
 
-## 12. Not covered yet
+## 12. Device reload loop
+
+`vcsdk serve --reload` replaces the per-save adb routine. Install the APK once,
+then:
+
+```powershell
+vcsdk serve D:\git\MyGame --reload --package com.finite.mygame
+```
+
+On every successful build it pushes `bin/MyGame.v12pak` to
+`/storage/emulated/0/Android/data/<package>/files/v12inbox/dev.v12pak`, calls
+`am force-stop`, and starts the launcher activity again. NovaV2 checks that
+inbox before the pak in its own package, so the headset runs the pushed build.
+
+| Option | Default |
+|---|---|
+| `--device <serial>` | The only connected adb device |
+| `--package <id>` | `V12_ANDROID_PACKAGE`, then `package/unique_name` in `export_presets.cfg` |
+| `--inbox <dir>` | `/storage/emulated/0/Android/data/<package>/files/v12inbox` |
+
+The pak is always written as `dev.v12pak`, so repeated pushes overwrite it and
+nothing needs cleaning up on the device. The extraction cache still grows one
+directory per build; clear it from the app or call `V12PakCache.Purge()`.
+
+The reload relaunches the app instead of swapping the pak in place. Pak DLLs
+load into the host's non-collectible assembly load context, so a second build
+cannot replace the first inside the same process. A relaunch is the cheap,
+honest unit of "apply a pak", and because the APK does not change it costs one
+app start rather than a reinstall. `V12PakLoadResult.Unload()` covers the
+content-only and `CSharpScripts` cases for hosts that want to reload in-process;
+the tool does not use it yet.
+
+Requirements: `adb` on `PATH` or under `ANDROID_HOME`/`ANDROID_SDK_ROOT`, at
+least one connected device, and a real package id (Godot's generated
+`com.example.$genname` is rejected, so pass `--package`). A reload failure never
+fails the build; the watch loop keeps packing.
+
+## 13. Not covered yet
 
 - `vcsdk` does not build Android host distributions; it produces the pak and a
   desktop host.

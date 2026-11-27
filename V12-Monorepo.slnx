@@ -44,9 +44,11 @@
   <Folder Name="/V12-Physics/">
     <Project Path="V12.Physics/V12.Physics.csproj" />
     <Project Path="V12.Gravity/V12.Gravity.csproj" />
+    <Project Path="V12.Voxel/V12.Voxel.csproj" />
   </Folder>
   <Folder Name="/Tests/">
     <Project Path="V12.Architecture.Tests/V12.Architecture.Tests.csproj" />
+    <Project Path="V12.Voxel.Tests/V12.Voxel.Tests.csproj" />
   </Folder>
   <Folder Name="/V12-Paper/">
     <Project Path="V12.Paper/V12.Paper.csproj" />
@@ -74,6 +76,13 @@
     <Project Path="V12-Samples/PhysicsPlayground/PhysicsPlayground.csproj" />
     <Project Path="V12-Samples/SpaceFlight/SpaceFlight.csproj" />
     <Project Path="V12-Samples/UiShowcase/UiShowcase.csproj" />
+    <Project Path="V12-Samples/VoxelPlanet/VoxelPlanet.csproj" />
+  </Folder>
+  <Folder Name="/V12-All/">
+    <Project Path="V12.All/V12.All.csproj" />
+  </Folder>
+  <Folder Name="/V12-Host/">
+    <Project Path="V12.Host/V12.Host.csproj" />
   </Folder>
   <Folder Name="/V12-Sdk/">
     <Project Path="V12-Sdk/V12.Sdk.csproj" />

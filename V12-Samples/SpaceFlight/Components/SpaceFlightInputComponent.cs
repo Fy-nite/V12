@@ -29,8 +29,8 @@ public sealed class SpaceFlightInputComponent : ScriptableComponent, IInputHandl
     public IWorldElement? ResetTarget { get; set; }
     public float ResetMu { get; set; }
     public float ResetRadius { get; set; } = 800f;
-    public float BoostDeltaV { get; set; } = 1f;
-    public float BrakeDeltaV { get; set; } = 1f;
+    public float BoostDeltaV { get; set; } = 25f;
+    public float BrakeDeltaV { get; set; } = 25f;
     public float ThrustAcceleration { get; set; } = 50f;
     public OrbitCameraComponent? Camera { get; set; }
     public ProgradeAttitudeComponent? Attitude { get; set; }

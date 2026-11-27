@@ -53,6 +53,33 @@ channel.Play();
 engine.Transport.Play();
 ```
 
+## Platforms
+
+The OwnAudioSharp backend is cross-platform and the NuGet package carries native
+libraries for `win-x64`, `win-arm64`, `linux-x64`, `linux-arm64`, `osx-x64` and
+`osx-arm64`. Linux is supported:
+
+- The native core talks to ALSA through cpal. Install the ALSA runtime
+  (`libasound2` on Debian/Ubuntu) and an ALSA bridge to your sound server
+  (`libasound2-plugins`, `pipewire-alsa` or `pulseaudio-alsa`). Audio servers are
+  not linked directly, and no FFmpeg is needed: WAV, MP3, FLAC, OGG/Vorbis,
+  AAC/M4A, ALAC/M4A and AIFF are decoded natively.
+- For Godot exports, confirm `runtimes/linux-x64/native/libownaudio_ffi.so` (or
+  the arm64 build) is present next to the exported executable. Godot itself should
+  keep using the Dummy audio driver, as `NovaV2.Host/project.godot` already does,
+  so it does not hold the device open.
+- Device names come from ALSA, so they include pseudo-devices. The `null` PCM is
+  described as "Discard all samples (playback) or generate zero samples
+  (capture)"; playing into it reports a running engine and produces silence. The
+  backend never prefers a null/dummy device over real hardware, and the game-side
+  adapter logs a warning if only a silent sink is available.
+- If the default ALSA PCM cannot open (`snd_pcm_dmix_open ... unable to open
+  slave`), check the sound server first: `pactl info` or `wpctl status`, then
+  `speaker-test -c 2` and `aplay -L`. `--audio-device <name>` (NovaV2) passes a
+  device name through to `AudioEngineOptions.OutputDeviceName`; a substring is
+  accepted. When the configured device fails, startup tries the remaining real
+  devices before giving up.
+
 ## Channel kinds
 
 | Kind | Backend source | Use |
@@ -223,6 +250,9 @@ A typical scene:
   device is selected when `StartAsync` opens the session.
 - `IAudioEngine.DeviceEvent` is raised from the backend's poll thread. Handlers
   must be thread-safe and should not block.
+- A null/discard sink ("Discard all samples ...") is treated as a placeholder, not
+  a device: it is only opened when nothing else exists. The engine reports it as
+  running, and `AudioSystem` warns that the game will be silent.
 - `IAudioPlayer` and the `FrameSnapshot` audio fields were removed. Legacy Nova no
   longer has an audio backend; migrate it to `IAudioEngine` when it comes back into
   scope.
@@ -237,4 +267,4 @@ A typical scene:
 - The game spike validates `GameRoot` + `AudioSystem` + `AudioSourceComponent` with
   a listener and a positional emitter.
 - For Godot exports, confirm `runtimes/<rid>/native/ownaudio_ffi.dll` (or the
-  platform equivalent) is present in the export.
+  platform equivalent; `libownaudio_ffi.so` on Linux) is present in the export.
